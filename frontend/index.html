@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 人生桌游｜静态视觉原型</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="page-shell" aria-label="AI 人生桌游静态视觉原型">
+      <header class="page-header">
+        <div><p>AI 人生桌游</p><h1>一局正在发生的人生</h1></div>
+        <span id="round-status"></span>
+      </header>
+      <section class="markets" aria-label="市场">
+        <div class="market-block opportunity-market"><div class="section-title"><h2>机会市场</h2><span>当前 5 张</span></div><div id="opportunity-cards" class="card-row five-cards"></div></div>
+        <div class="market-block fate-market"><div class="section-title"><h2>命运市场</h2><span>Fate</span></div><div id="fate-cards" class="card-row two-cards"></div></div>
+      </section>
+      <section class="play-area" aria-label="本局桌面">
+        <aside class="left-notes">
+          <section class="text-section"><h2>全局人生目标</h2><ol id="goals-list"></ol></section>
+          <section class="text-section"><h2>持有事件牌</h2><ul id="events-list"></ul></section>
+          <section class="text-section"><h2>当前逆境</h2><div id="debuff-detail"></div></section>
+        </aside>
+        <section class="life-center" aria-label="人生轨道与骰子">
+          <div class="track-heading"><span id="phase-label"></span><span>成年人生轨道 · 23 回合</span></div>
+          <div id="life-track" class="life-track" aria-label="内部人生轨道，共 23 格"><div class="dice-cluster"><p>本回合骰池</p><div id="dice-row" class="dice-row"></div></div></div>
+        </section>
+        <section class="game-log text-section" aria-label="游戏日志"><h2>游戏日志</h2><ul id="log-list"></ul></section>
+        <section class="resume-section" aria-label="当前履历"><div class="section-title"><h2>当前履历</h2><span>当前顶部 / active 履历</span></div><div id="resume-cards" class="card-row five-cards resume-cards"></div></section>
+      </section>
+    </main>
+    <dialog id="resume-modal" class="resume-modal" aria-labelledby="modal-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">本类履历堆</p><h2 id="modal-title"></h2><p id="modal-note"></p><ul id="modal-cards"></ul></dialog>
+    <script src="app.js"></script>
+  </body>
+</html>
