@@ -2,6 +2,7 @@
 """Production Runtime 的最小可暂停垂直切片。"""
 import copy
 import random
+import threading
 
 from .cards import CARDS, LG_NAMES
 from .engine import CONFIGS, Game
@@ -265,6 +266,9 @@ class GameSession:
         if seed is not None and rng is not None:
             raise ValueError('seed and rng are mutually exclusive')
         self.rng = rng if rng is not None else random.Random(seed)
+        # 仅供同一正式局在 MCP worker 与 HTTP listener 间互斥访问；
+        # 不属于规则状态，不参与任何决策、序列化或 spectator 投影。
+        self._access_lock = threading.RLock()
         self.game = Game(
             cfg or CONFIGS['V06'],
             None,

@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """最薄本地测试 MCP：直接包装 ailife.runtime.GameSession。
 
-只做两件事：
+只做三件事：
 1. 进程内维护 session_id -> GameSession；
 2. 把三个 tool 的入参原样转交给 GameSession 的公开方法。
+3. 在同一进程提供只读 spectator snapshot 的 loopback HTTP GET。
 
 本模块不解释规则：不包装 Simulator、不调用 play_turn()、不复制 Runtime /
 Engine 的判定，也不自行计算合法动作或购买/维护方案 —— 合法动作与方案全部
@@ -20,8 +21,13 @@ Engine 的判定，也不自行计算合法动作或购买/维护方案 —— �
 启动（本机未预装官方 SDK，用临时环境运行）：
     uv run --no-project --with mcp python runtime_mcp.py
 """
+import json
+import os
+import threading
 import uuid
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
 from ailife.runtime import GameSession
 
@@ -41,6 +47,21 @@ _REDUNDANT_REROLL_KEYS = ('normal_rerolls_remaining',
 
 # 进程内 session 表：server 重启即失效，不做数据库 / 存档 / 序列化。
 _SESSIONS = {}
+_SPECTATOR_HOST = '127.0.0.1'
+_SPECTATOR_PORT = 8765
+
+
+def _spectator_port():
+    raw_port = os.environ.get('AILIFE_SPECTATOR_PORT')
+    if raw_port is None:
+        return _SPECTATOR_PORT
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise ValueError('AILIFE_SPECTATOR_PORT 必须是 1 到 65535 的整数') from exc
+    if not 1 <= port <= 65535:
+        raise ValueError('AILIFE_SPECTATOR_PORT 必须是 1 到 65535 的整数')
+    return port
 
 
 def _validate_seed(seed):
@@ -64,6 +85,63 @@ def _lookup_session(session_id):
     if session is None:
         return None, {'ok': False, 'error': 'unknown_session_id'}
     return session, None
+
+
+def _with_session_lock(session_id, operation):
+    """在同一 GameSession 的访问锁内执行完整 Runtime 操作。"""
+    session, error = _lookup_session(session_id)
+    if error is not None:
+        return None, error
+    with session._access_lock:
+        return operation(session), None
+
+
+class _SpectatorRequestHandler(BaseHTTPRequestHandler):
+    """仅暴露正式 spectator snapshot 的 loopback HTTP handler。"""
+
+    def log_message(self, format, *args):
+        # stdio MCP 进程不应因浏览器 polling 产生额外日志噪声。
+        return
+
+    def _send_json(self, status, payload):
+        body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        path = urlsplit(self.path).path
+        parts = path.split('/')
+        if (len(parts) != 4 or parts[:3] != ['', 'spectator', 'sessions']
+                or not parts[3]):
+            self._send_json(404, {'ok': False, 'error': 'not_found'})
+            return
+
+        snapshot, error = _with_session_lock(
+            parts[3], lambda session: session.spectator_snapshot())
+        if error is not None:
+            self._send_json(404, error)
+            return
+        self._send_json(200, snapshot)
+
+    def do_POST(self):
+        self._send_json(404, {'ok': False, 'error': 'not_found'})
+
+
+def _build_spectator_http_server(port):
+    return HTTPServer((_SPECTATOR_HOST, port), _SpectatorRequestHandler)
+
+
+def _start_spectator_http_server(port):
+    httpd = _build_spectator_http_server(port)
+    thread = threading.Thread(target=httpd.serve_forever,
+                              name='ailife-spectator-http', daemon=True)
+    thread.start()
+    return httpd, thread
 
 
 def _slim_decision(decision):
@@ -94,25 +172,28 @@ def start_game(seed: Optional[int] = None,
                           else list(forced_goals))
     session_id = str(uuid.uuid4())
     _SESSIONS[session_id] = session
-    return {'session_id': session_id,
-            'decision': _slim_decision(session.current_decision())}
+    decision, _ = _with_session_lock(
+        session_id, lambda active_session: active_session.current_decision())
+    return {'session_id': session_id, 'decision': _slim_decision(decision)}
 
 
 def current_decision(session_id: str) -> Dict[str, Any]:
     """返回指定 session 的当前 decision；重复读取不改变任何状态。"""
-    session, error = _lookup_session(session_id)
+    decision, error = _with_session_lock(
+        session_id, lambda session: session.current_decision())
     if error is not None:
         return error
-    return _slim_decision(session.current_decision())
+    return _slim_decision(decision)
 
 
 def submit_action(session_id: str, decision_id: str,
                   action: Dict[str, Any]) -> Dict[str, Any]:
     """把 action 交给 GameSession.submit_action()，返回其结果与下一 decision。"""
-    session, error = _lookup_session(session_id)
+    result, error = _with_session_lock(
+        session_id, lambda session: session.submit_action(decision_id, action))
     if error is not None:
         return error
-    return _slim_result(session.submit_action(decision_id, action))
+    return _slim_result(result)
 
 
 def _build_server():
@@ -134,7 +215,17 @@ def main():
     if server is None:
         raise SystemExit('未检测到官方 mcp SDK；请用 '
                          '`uv run --no-project --with mcp python runtime_mcp.py` 启动')
-    server.run()
+    try:
+        port = _spectator_port()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    httpd, thread = _start_spectator_http_server(port)
+    try:
+        server.run()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join()
 
 
 if __name__ == '__main__':

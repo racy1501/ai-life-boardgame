@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import copy
+import http.client
+import json
 import os
 import sys
+import threading
 import unittest
 import uuid
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -50,6 +55,30 @@ def result_text(result):
 class RuntimeMcpTestCase(unittest.TestCase):
     def setUp(self):
         runtime_mcp._SESSIONS.clear()
+
+    def start_spectator_server(self):
+        httpd, thread = runtime_mcp._start_spectator_http_server(0)
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(thread.join)
+        self.addCleanup(httpd.shutdown)
+        return httpd.server_address[1]
+
+    def spectator_get(self, port, path):
+        connection = http.client.HTTPConnection('127.0.0.1', port, timeout=2)
+        connection.request('GET', path)
+        response = connection.getresponse()
+        body = response.read()
+        headers = dict(response.getheaders())
+        connection.close()
+        return response.status, headers, json.loads(body.decode('utf-8'))
+
+    def spectator_state(self, session):
+        game = session.game
+        return copy.deepcopy((
+            game.turn, game.stage, game.dice, game.market, game.fate_market,
+            game.cv, session._decision_revision, session._recent_events,
+            session._next_recent_event_seq,
+        ))
 
 
 class TestStartGame(RuntimeMcpTestCase):
@@ -242,6 +271,138 @@ class TestRuntimePassthrough(RuntimeMcpTestCase):
     def test_slim_decision_leaves_other_decisions_untouched(self):
         decision = {'kind': 'childhood_pick_1', 'legal_actions': []}
         self.assertEqual(runtime_mcp._slim_decision(decision), decision)
+
+
+class TestSpectatorHttpBridge(RuntimeMcpTestCase):
+    def test_get_returns_same_session_snapshot_with_browser_headers(self):
+        started = runtime_mcp.start_game(seed=0, forced_goals=[1, 2])
+        session_id = started['session_id']
+        session = runtime_mcp._SESSIONS[session_id]
+        port = self.start_spectator_server()
+
+        status, headers, payload = self.spectator_get(
+            port, '/spectator/sessions/' + session_id)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Type'],
+                         'application/json; charset=utf-8')
+        self.assertEqual(headers['Access-Control-Allow-Origin'], '*')
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertEqual(payload, session.spectator_snapshot())
+        self.assertIn('recent_events', payload)
+        self.assertTrue(hasattr(session, '_access_lock'))
+
+    def test_unknown_session_and_other_paths_are_structured_404(self):
+        port = self.start_spectator_server()
+        status, _, payload = self.spectator_get(
+            port, '/spectator/sessions/' + str(uuid.uuid4()))
+        self.assertEqual(status, 404)
+        self.assertEqual(payload, {'ok': False, 'error': 'unknown_session_id'})
+
+        status, _, payload = self.spectator_get(port, '/not-a-route')
+        self.assertEqual(status, 404)
+        self.assertEqual(payload, {'ok': False, 'error': 'not_found'})
+
+    def test_repeated_gets_are_read_only_and_see_submit_update(self):
+        started = runtime_mcp.start_game(seed=0, forced_goals=[1, 2])
+        session_id, decision = started['session_id'], started['decision']
+        session = runtime_mcp._SESSIONS[session_id]
+        port = self.start_spectator_server()
+        before = self.spectator_state(session)
+
+        first = self.spectator_get(port, '/spectator/sessions/' + session_id)
+        second = self.spectator_get(port, '/spectator/sessions/' + session_id)
+        self.assertEqual(first[2], second[2])
+        self.assertEqual(self.spectator_state(session), before)
+
+        first_pick = runtime_mcp.submit_action(
+            session_id, decision['decision_id'], decision['legal_actions'][0])
+        second_pick = runtime_mcp.submit_action(
+            session_id, first_pick['decision']['decision_id'],
+            first_pick['decision']['legal_actions'][0])
+        self.assertTrue(second_pick['ok'])
+
+        status, _, updated = self.spectator_get(
+            port, '/spectator/sessions/' + session_id)
+        self.assertEqual(status, 200)
+        self.assertTrue(updated['dice']['values'])
+        self.assertTrue(any(event['type'] == 'dice_rolled'
+                            for event in updated['recent_events']))
+
+    def test_get_waits_for_locked_runtime_action_without_duplicate_advance(self):
+        started = runtime_mcp.start_game(seed=0, forced_goals=[1, 2])
+        session_id, decision = started['session_id'], started['decision']
+        session = runtime_mcp._SESSIONS[session_id]
+        port = self.start_spectator_server()
+        action_entered = threading.Event()
+        release_action = threading.Event()
+        snapshot_entered = threading.Event()
+        submit_result = []
+        get_result = []
+        original_submit = session.submit_action
+        original_snapshot = session.spectator_snapshot
+
+        def paused_submit(*args, **kwargs):
+            result = original_submit(*args, **kwargs)
+            action_entered.set()
+            self.assertTrue(release_action.wait(2))
+            return result
+
+        def observed_snapshot():
+            snapshot_entered.set()
+            return original_snapshot()
+
+        with patch.object(session, 'submit_action', side_effect=paused_submit), \
+             patch.object(session, 'spectator_snapshot', side_effect=observed_snapshot):
+            action_thread = threading.Thread(
+                target=lambda: submit_result.append(runtime_mcp.submit_action(
+                    session_id, decision['decision_id'],
+                    decision['legal_actions'][0])))
+            action_thread.start()
+            self.assertTrue(action_entered.wait(2))
+
+            get_thread = threading.Thread(
+                target=lambda: get_result.append(self.spectator_get(
+                    port, '/spectator/sessions/' + session_id)))
+            get_thread.start()
+            self.assertFalse(snapshot_entered.wait(0.1))
+            release_action.set()
+            action_thread.join(2)
+            get_thread.join(2)
+
+        self.assertFalse(action_thread.is_alive())
+        self.assertFalse(get_thread.is_alive())
+        self.assertEqual(len(submit_result), 1)
+        self.assertTrue(submit_result[0]['ok'])
+        self.assertEqual(session.game.childhood_draft_round, 1)
+        self.assertEqual(len(get_result), 1)
+        self.assertEqual(get_result[0][0], 200)
+        self.assertTrue(snapshot_entered.is_set())
+
+    def test_port_validation_and_main_closes_listener_on_return_or_error(self):
+        with patch.dict(os.environ, {'AILIFE_SPECTATOR_PORT': '4321'}):
+            self.assertEqual(runtime_mcp._spectator_port(), 4321)
+        with patch.dict(os.environ, {'AILIFE_SPECTATOR_PORT': 'invalid'}):
+            with self.assertRaises(ValueError):
+                runtime_mcp._spectator_port()
+
+        for side_effect in (None, RuntimeError('mcp stopped')):
+            with self.subTest(side_effect=side_effect):
+                fake_httpd = Mock()
+                fake_thread = Mock()
+                fake_server = Mock()
+                fake_server.run.side_effect = side_effect
+                with patch.object(runtime_mcp, 'server', fake_server), \
+                     patch.object(runtime_mcp, '_start_spectator_http_server',
+                                  return_value=(fake_httpd, fake_thread)):
+                    if side_effect is None:
+                        runtime_mcp.main()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, 'mcp stopped'):
+                            runtime_mcp.main()
+                fake_httpd.shutdown.assert_called_once_with()
+                fake_httpd.server_close.assert_called_once_with()
+                fake_thread.join.assert_called_once_with()
 
 
 @unittest.skipIf(runtime_mcp.server is None,
