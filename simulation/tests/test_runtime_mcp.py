@@ -434,7 +434,7 @@ class TestServerWiring(RuntimeMcpTestCase):
         tools = {tool.name: input_schema(tool)
                  for tool in asyncio.run(runtime_mcp.server.list_tools())}
         self.assertEqual(sorted(tools['start_game']['properties']),
-                         ['forced_goals', 'seed'])
+                         ['forced_goals', 'player_emoji', 'player_name', 'seed'])
         self.assertEqual(tools['start_game'].get('required', []), [])
         self.assertEqual(sorted(tools['current_decision']['required']),
                          ['session_id'])
