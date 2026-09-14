@@ -3626,6 +3626,7 @@ class TestSpectatorSnapshot(unittest.TestCase):
             session._rerolls_remaining, session._purchase_ready,
             session._purchase_executed, session._turn_closeout_resolved,
             session._next_turn_started,
+            session._recent_events, session._next_recent_event_seq,
         ))
 
     def test_opening_snapshot_is_json_ready_and_never_enters_decision_flow(self):
@@ -3646,6 +3647,10 @@ class TestSpectatorSnapshot(unittest.TestCase):
         self.assertEqual(first['completed_turn'], 0)
         self.assertEqual(first['dice']['values'], [])
         self.assertEqual(first['dice']['frozen_indices'], [])
+        self.assertEqual(first['recent_events'], [{
+            'seq': 1, 'type': 'game_started', 'turn': 0,
+            'stage': 'youth', 'text': '游戏开始',
+        }])
         self.assertEqual(json.loads(json.dumps(first)), first)
 
     def test_snapshot_projects_live_market_hand_debuff_dice_and_cv_stack(self):
@@ -3679,6 +3684,7 @@ class TestSpectatorSnapshot(unittest.TestCase):
                           snapshot['cv']['H']['stack']], ['YH-01', 'YH-02'])
         self.assertIsNone(snapshot['cv']['R']['top_card_id'])
         self.assertEqual(snapshot['cv']['R']['stack'], [])
+        self.assertEqual(snapshot['recent_events'][0]['type'], 'game_started')
         self.assertEqual([goal['id'] for goal in snapshot['life_goals']], [1, 2])
         self.assertTrue(all(goal['scoring_text'] for goal in
                             snapshot['life_goals']))
@@ -3692,6 +3698,182 @@ class TestSpectatorSnapshot(unittest.TestCase):
 
         self.assertEqual(snapshot['dice']['values'], ['H', 'BL', 'K', 'M'])
         self.assertEqual(snapshot['dice']['frozen_indices'], [])
+
+
+class TestSpectatorRecentEvents(unittest.TestCase):
+    def _adult_post_roll_session(self):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        first = session.current_decision()
+        second = session.submit_action(first['decision_id'], {
+            'card_id': 'C12'})['decision']
+        session.game._forced = ['H', 'K', 'R', 'M']
+        post_roll = session.submit_action(second['decision_id'], {
+            'card_id': 'C09'})['decision']
+        return session, post_roll
+
+    def test_game_started_snapshot_copy_and_bounded_monotonic_buffer(self):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        self.assertEqual([event['type'] for event in session._recent_events],
+                         ['game_started'])
+        before = copy.deepcopy((session._recent_events,
+                                session._next_recent_event_seq))
+        first = session.spectator_snapshot()
+        second = session.spectator_snapshot()
+        self.assertEqual(first['recent_events'], second['recent_events'])
+        self.assertEqual((session._recent_events, session._next_recent_event_seq),
+                         before)
+        first['recent_events'][0]['text'] = 'mutated outside'
+        self.assertEqual(session._recent_events[0]['text'], '游戏开始')
+
+        for index in range(22):
+            session._append_recent_event('turn_completed', 'event %d' % index)
+        self.assertEqual(len(session._recent_events), 20)
+        self.assertEqual([event['seq'] for event in session._recent_events],
+                         list(range(4, 24)))
+
+    def test_first_roll_and_successful_reroll_each_record_once(self):
+        session, post_roll = self._adult_post_roll_session()
+        self.assertEqual([event['type'] for event in session._recent_events].count(
+            'dice_rolled'), 1)
+        result = session.submit_action(post_roll['decision_id'], {
+            'choice': 'normal_reroll', 'indices': [0], 'use_ye03': False,
+            'use_c11': False, 'c12_index': None})
+        self.assertTrue(result['ok'])
+        rerolls = [event for event in session._recent_events
+                   if event['type'] == 'rerolled']
+        self.assertEqual(len(rerolls), 1)
+        self.assertEqual(rerolls[0]['details']['reroll_count'], 1)
+        before = copy.deepcopy(session._recent_events)
+        rejected = session.submit_action(post_roll['decision_id'], {
+            'choice': 'normal_reroll', 'indices': [0], 'use_ye03': False,
+            'use_c11': False, 'c12_index': None})
+        self.assertFalse(rejected['ok'])
+        self.assertEqual(session._recent_events, before)
+
+    def test_debuff_draw_and_replacement_record_one_event_each(self):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        game = session.game
+        game.childhood_complete = True
+        game.turn = 2
+        game.pre_roll_open = False
+        game.pool = Counter({'BL': 3})
+        game.debuff_deck = ['D01', 'D02']
+
+        self.assertEqual(session._resolve_runtime_debuff(), 'drawn')
+        first = session._recent_events[-1]
+        self.assertEqual(first['type'], 'debuff_started')
+        self.assertEqual(first['details']['card_id'], 'D01')
+        self.assertNotIn('replaced_card_id', first['details'])
+
+        self.assertEqual(session._resolve_runtime_debuff(), 'drawn')
+        second = session._recent_events[-1]
+        self.assertEqual(second['type'], 'debuff_started')
+        self.assertEqual(second['details'], {
+            'card_id': 'D02', 'replaced_card_id': 'D01'})
+        self.assertEqual([event['type'] for event in session._recent_events].count(
+            'debuff_started'), 2)
+
+    def test_real_purchase_and_non_immediate_fate_each_record_once(self):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        first = session.current_decision()
+        second = session.submit_action(first['decision_id'], {
+            'card_id': 'C12'})['decision']
+        session.game._forced = ['H', 'H', 'BL', 'BL']
+        post_roll = session.submit_action(second['decision_id'], {
+            'card_id': 'C09'})['decision']
+        session.game.market = ['YH-01']
+        session.game.market_entry = {'YH-01': session.game.turn}
+        ready = session.submit_action(post_roll['decision_id'], {
+            'choice': 'proceed_to_purchase'})['decision']
+        purchased = session.submit_action(ready['decision_id'], {
+            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})
+        if 'selected_purchase_target' in purchased['decision']:
+            plan = next(plan for plan in session._purchase_plan_cache
+                        if plan.get('ordinary_card_ids', plan.get('card_ids'))
+                        == ['YH-01'])
+            purchased = session.submit_action(
+                purchased['decision']['decision_id'], {'plan_id': plan['plan_id']})
+        self.assertTrue(purchased['ok'])
+        card_events = [event for event in session._recent_events
+                       if event['type'] == 'card_acquired']
+        self.assertEqual(len(card_events), 1)
+        self.assertEqual(card_events[0]['details']['card_ids'], ['YH-01'])
+
+        fate_session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        first = fate_session.current_decision()
+        second = fate_session.submit_action(first['decision_id'], {
+            'card_id': 'C12'})['decision']
+        fate_session.game._forced = ['GL', 'BL', 'H', 'K']
+        fate_session.submit_action(second['decision_id'], {'card_id': 'C09'})
+        fate_session.game.turn = 3
+        fate_session.game.fate_market = ['F07']
+        fate_session._enter_purchase_ready()
+        ready = fate_session.current_decision()
+        resolved = fate_session.submit_action(ready['decision_id'], {
+            'ordinary_card_ids': [], 'fate_card_id': 'F07'})
+        self.assertTrue(resolved['ok'])
+        fate_events = [event for event in fate_session._recent_events
+                       if event['type'] == 'fate_resolved']
+        self.assertEqual(len(fate_events), 1)
+        self.assertEqual(fate_events[0]['details']['card_id'], 'F07')
+
+        immediate_session = GameSession(seed=1, shuffle=False,
+                                        forced_goals=[1, 2])
+        first = immediate_session.current_decision()
+        second = immediate_session.submit_action(first['decision_id'], {
+            'card_id': 'C12'})['decision']
+        immediate_session.game._forced = ['GL', 'BL', 'H', 'K']
+        immediate_session.submit_action(second['decision_id'], {
+            'card_id': 'C09'})
+        immediate_session.game.turn = 3
+        immediate_session.game.fate_market = ['F01']
+        immediate_session.game.cv['H'] = ['YH-01']
+        immediate_session._enter_purchase_ready()
+        ready = immediate_session.current_decision()
+        pending = immediate_session.submit_action(ready['decision_id'], {
+            'ordinary_card_ids': [], 'fate_card_id': 'F01'})['decision']
+        self.assertEqual(pending['kind'], 'fate_immediate_decision')
+        self.assertEqual([event['type'] for event in
+                          immediate_session._recent_events].count(
+            'fate_resolved'), 0)
+        completed = immediate_session.submit_action(pending['decision_id'], {
+            'card_id': 'YH-01'})
+        self.assertTrue(completed['ok'])
+        self.assertEqual([event['type'] for event in
+                          immediate_session._recent_events].count(
+            'fate_resolved'), 1)
+
+    def test_stage_change_and_closeout_events_use_completed_results_once(self):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        game = session.game
+        game.stage = 'youth'
+        with patch.object(game, 'cleanup_normal_market') as cleanup:
+            def change_stage(*args, **kwargs):
+                game.stage = 'middle'
+                return {}
+            cleanup.side_effect = change_stage
+            self.assertEqual(session._cleanup_normal_market(), {})
+        stage_events = [event for event in session._recent_events
+                        if event['type'] == 'stage_changed']
+        self.assertEqual(stage_events[-1]['details'], {
+            'from_stage': 'youth', 'to_stage': 'middle'})
+
+        previous = {
+            'completed_turn': 23,
+            'next_turn': None,
+            'debuff_lifecycle': {'archived_card_id': 'D01'},
+            'game_over': True,
+        }
+        with patch.object(game, 'closeout_adult_turn', return_value=previous):
+            game.game_over = True
+            session._market_cleanup_resolved = True
+            session._auto_advance()
+        types = [event['type'] for event in session._recent_events]
+        self.assertEqual(types[-3:], ['debuff_expired', 'turn_completed',
+                                      'game_over'])
+        before = copy.deepcopy(session._recent_events)
+        session._auto_advance()
+        self.assertEqual(session._recent_events, before)
 
 
 if __name__ == '__main__':

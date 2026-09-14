@@ -298,6 +298,58 @@ class GameSession:
         # 展示层专用：已展示过的通用机制 hint key。只在 submit_action
         # 成功接受后更新；current_decision 纯读，不参与任何规则判定。
         self.seen_rule_hints = set()
+        # 仅供围观页显示的有界结果日志；不属于 Engine 规则状态，也不参与
+        # 任何决策或裁决。事件只在 Runtime 已确认正式状态变更后写入。
+        self._recent_events = []
+        self._next_recent_event_seq = 1
+        self._append_recent_event('game_started', '游戏开始')
+
+    def _append_recent_event(self, event_type, text, details=None):
+        """追加一条展示事件；不读取或改变任何 Engine 规则状态。"""
+        event = {
+            'seq': self._next_recent_event_seq,
+            'type': event_type,
+            'turn': self.game.turn,
+            'stage': self.game.stage,
+            'text': text,
+        }
+        if details:
+            event['details'] = copy.deepcopy(details)
+        self._next_recent_event_seq += 1
+        self._recent_events.append(event)
+        if len(self._recent_events) > 20:
+            del self._recent_events[:-20]
+
+    def _record_fate_resolved(self, card_id):
+        self._append_recent_event(
+            'fate_resolved', '命运「%s」已结算' % CARDS[card_id]['name'],
+            {'card_id': card_id})
+
+    def _resolve_runtime_debuff(self, cancel_cid=None):
+        """统一记录已完成的 Debuff 抽取，供自动与显式路径共用。"""
+        replaced_card_id = self.game.current_debuff
+        outcome = self.game.resolve_runtime_debuff(cancel_cid=cancel_cid)
+        if outcome == 'drawn':
+            card_id = self.game.current_debuff
+            details = {'card_id': card_id}
+            if replaced_card_id:
+                details['replaced_card_id'] = replaced_card_id
+            self._append_recent_event(
+                'debuff_started', '逆境「%s」开始生效' % CARDS[card_id]['name'],
+                details)
+        return outcome
+
+    def _cleanup_normal_market(self, protected=None):
+        """复用正式市场清理，并且只在真实阶段切换后记录展示事件。"""
+        old_stage = self.game.stage
+        result = self.game.cleanup_normal_market(protected=protected)
+        if result is not None and old_stage != self.game.stage:
+            self._append_recent_event(
+                'stage_changed', '进入%s期' % {
+                    'youth': '青年', 'middle': '中年', 'elder': '老年',
+                }.get(self.game.stage, self.game.stage),
+                {'from_stage': old_stage, 'to_stage': self.game.stage})
+        return result
 
     def _decision_kind(self):
         if self._turn_closeout_resolved:
@@ -356,6 +408,9 @@ class GameSession:
     def _finish_first_roll(self):
         self.game.roll_first_dice()
         self._rerolls_remaining = self.game.normal_reroll_rounds()
+        self._append_recent_event(
+            'dice_rolled', '掷出 %d 颗骰子' % len(self.game.dice),
+            {'dice_count': len(self.game.dice)})
 
     def _has_dice_post_actions(self):
         return (((self._rerolls_remaining or 0) > 0
@@ -383,7 +438,7 @@ class GameSession:
                 and self.game.pending_fate_immediate is None):
             if self._debuff_protection_is_pending():
                 return
-            outcome = self.game.resolve_runtime_debuff(cancel_cid=None)
+            outcome = self._resolve_runtime_debuff(cancel_cid=None)
             self._debuff_resolved = True
             self._debuff_outcome = outcome
             if outcome == 'drawn':
@@ -412,7 +467,7 @@ class GameSession:
                 and not self.game.pending_new and self._maintenance_resolved
                 and not self._market_cleanup_resolved):
             if self._market_protection_card() is None:
-                result = self.game.cleanup_normal_market()
+                result = self._cleanup_normal_market()
                 if result is None:
                     raise RuntimeError('automatic market cleanup became invalid')
                 self._market_cleanup_resolved = True
@@ -426,6 +481,17 @@ class GameSession:
                 'cancelled_by_card_id': self._debuff_cancelled_by,
             }
             self._previous_turn_result = copy.deepcopy(previous)
+            archived_card_id = previous['debuff_lifecycle']['archived_card_id']
+            if archived_card_id:
+                self._append_recent_event(
+                    'debuff_expired', '逆境「%s」已结束' % CARDS[archived_card_id]['name'],
+                    {'card_id': archived_card_id})
+            self._append_recent_event(
+                'turn_completed', '完成第 %d 回合' % previous['completed_turn'],
+                {'completed_turn': previous['completed_turn'],
+                 'next_turn': previous['next_turn']})
+            if previous['game_over']:
+                self._append_recent_event('game_over', '本局游戏结束')
             self._turn_closeout_resolved = True
             self._next_turn_started = False
             self._rerolls_remaining = None
@@ -562,11 +628,24 @@ class GameSession:
 
     def _execute_purchase_plan(self, selected):
         if self.game.fate_window():
-            return self.game.execute_joint(
+            success = self.game.execute_joint(
                 (tuple(selected['ordinary_card_ids']), selected['fate_card_id']),
                 selected, locked_resources=self.game.post_roll_resources())
-        return self.game.apply_precomputed_purchase_plan(
-            selected, pool_override=self.game.post_roll_resources())
+        else:
+            success = self.game.apply_precomputed_purchase_plan(
+                selected, pool_override=self.game.post_roll_resources())
+        if not success:
+            return False
+        card_ids = list((self.game.purchase_result or {}).get(
+            'purchased_card_ids', []))
+        if card_ids:
+            names = '、'.join(CARDS[cid]['name'] for cid in card_ids)
+            self._append_recent_event(
+                'card_acquired', '获得「%s」' % names, {'card_ids': card_ids})
+        fate_card_id = self.game.fate_acquired_this_turn
+        if fate_card_id and self.game.pending_fate_immediate is None:
+            self._record_fate_resolved(fate_card_id)
+        return True
 
     def _place_forced_cards(self):
         for cid in list(self.game.pending_new):
@@ -803,6 +882,7 @@ class GameSession:
                 'frozen_indices': frozen_indices,
             },
             'cv': cv,
+            'recent_events': copy.deepcopy(self._recent_events),
         }
 
     def _gl_bl_visible(self, kind):
@@ -1367,9 +1447,11 @@ class GameSession:
                     or action not in current['legal_actions']):
                 return {'ok': False, 'error': 'illegal_action',
                         'decision': current}
+            fate_card_id = self.game.pending_fate_immediate['fate_card_id']
             if not self.game.resolve_fate_immediate(decision_id, action):
                 return {'ok': False, 'error': 'immediate_state_mismatch',
                         'decision': self.current_decision()}
+            self._record_fate_resolved(fate_card_id)
             accepted = copy.deepcopy(action)
         elif current['kind'] == 'debuff_protection_decision':
             if not isinstance(action, dict):
@@ -1389,7 +1471,7 @@ class GameSession:
             else:
                 return {'ok': False, 'error': 'illegal_action',
                         'decision': current}
-            outcome = self.game.resolve_runtime_debuff(cancel_cid=cancel_cid)
+            outcome = self._resolve_runtime_debuff(cancel_cid=cancel_cid)
             if outcome is None:
                 return {'ok': False, 'error': 'illegal_action',
                         'decision': current}
@@ -1445,11 +1527,11 @@ class GameSession:
                 return {'ok': False, 'error': 'invalid_action',
                         'decision': current}
             if action == {'choice': 'skip'}:
-                result = self.game.cleanup_normal_market()
+                result = self._cleanup_normal_market()
             elif (set(action) == {'choice', 'target_card_id'}
                     and action.get('choice') == 'use'
                     and action in current['legal_actions']):
-                result = self.game.cleanup_normal_market(
+                result = self._cleanup_normal_market(
                     protected=action['target_card_id'])
             else:
                 return {'ok': False, 'error': 'illegal_action',
@@ -1534,6 +1616,9 @@ class GameSession:
                 if rerolled:
                     self.game.stats.run['reroll_rounds_used'] += 1
                     self.game.stats.run['dice_rerolled'] += rerolled
+                    self._append_recent_event(
+                        'rerolled', '重掷 %d 颗骰子' % rerolled,
+                        {'reroll_count': rerolled})
                 self._rerolls_remaining -= 1
                 self._advance_after_dice_change()
                 accepted = dict(action)
@@ -1556,6 +1641,10 @@ class GameSession:
                         action['ability_card_id'], action['die_index']):
                     return {'ok': False, 'error': 'illegal_action',
                             'decision': current}
+                self._append_recent_event(
+                    'rerolled', '重掷 1 颗骰子',
+                    {'reroll_count': 1,
+                     'ability_card_id': action['ability_card_id']})
                 self._advance_after_dice_change()
                 accepted = dict(action)
             else:
