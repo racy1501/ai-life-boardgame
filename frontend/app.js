@@ -31,3 +31,18 @@ orbit.forEach((point, index) => { const cell = document.createElement('span'); c
 list('#resume-cards', demoGame.resume, (card, index) => `<article class="game-card resume-card ${card.color}"><p class="card-type">${card.type}</p><h3>${card.name}</h3><p class="card-effect">${card.effect}</p><button class="more-button" data-index="${index}" type="button">more <span>→</span></button></article>`);
 const modal = element('#resume-modal'); const openResume = (card) => { element('#modal-title').textContent = card.type; element('#modal-note').textContent = `顶部牌为「${card.name}」。以下是本类其他仍持有履历，按当前履历堆顺序展示。`; element('#modal-cards').innerHTML = card.held.length ? card.held.map((name) => `<li>${name}</li>`).join('') : '<li>暂无其他持有牌</li>'; modal.showModal(); };
 element('#resume-cards').addEventListener('click', (event) => { const button = event.target.closest('.more-button'); if (button) openResume(demoGame.resume[button.dataset.index]); }); element('.modal-close').addEventListener('click', () => modal.close()); modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
+
+// 保留 1080×1080 内部设计画布，只按浏览器可用高度整体缩放。
+const DESIGN_BOARD_SIZE = 1080;
+const boardSpace = document.querySelector('.board-space');
+const boardCanvas = document.querySelector('.page-shell');
+const syncBoardScale = () => {
+  const top = boardSpace.getBoundingClientRect().top;
+  const availableHeight = Math.max(0, window.innerHeight - top - 16);
+  const scale = Math.min(1, availableHeight / DESIGN_BOARD_SIZE);
+  boardSpace.style.width = `${DESIGN_BOARD_SIZE * scale}px`;
+  boardSpace.style.height = `${DESIGN_BOARD_SIZE * scale}px`;
+  boardCanvas.style.setProperty('--board-scale', scale);
+};
+window.addEventListener('resize', syncBoardScale);
+syncBoardScale();

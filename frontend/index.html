@@ -7,7 +7,8 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <main class="page-shell" aria-label="AI 人生桌游静态视觉原型">
+    <div class="board-space">
+      <main class="page-shell" aria-label="AI 人生桌游静态视觉原型">
       <header class="page-header">
         <div><p>AI 人生桌游</p><h1>一局正在发生的人生</h1></div>
         <span id="round-status"></span>
@@ -29,7 +30,8 @@
         <section class="game-log text-section" aria-label="游戏日志"><h2>游戏日志</h2><ul id="log-list"></ul></section>
         <section class="resume-section" aria-label="当前履历"><div class="section-title"><h2>当前履历</h2><span>当前顶部 / active 履历</span></div><div id="resume-cards" class="card-row five-cards resume-cards"></div></section>
       </section>
-    </main>
+      </main>
+    </div>
     <dialog id="resume-modal" class="resume-modal" aria-labelledby="modal-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">本类履历堆</p><h2 id="modal-title"></h2><p id="modal-note"></p><ul id="modal-cards"></ul></dialog>
     <script src="app.js"></script>
   </body>
