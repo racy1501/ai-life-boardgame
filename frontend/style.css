@@ -16,3 +16,12 @@
 .play-area { grid-template-rows:clamp(270px,30cqw,320px) auto; }
 .life-track { width:min(74%,37cqw); }
 .track-heading { width:min(80%,39cqw); }
+.die-value { display:grid; width:100%; height:100%; place-items:center; color:#627161; font-size:clamp(9px,1.25cqw,13px); font-weight:600; }
+
+/* 主桌面按 1080×1080 设计坐标固定分区；数据只能填充，不能改变分区几何。 */
+.markets { height:26.5cqw; min-height:0; }
+.market-block,.market-block .card-row { min-width:0; min-height:0; }
+.card-slot { width:100%; aspect-ratio:var(--card-ratio); border:1px dashed rgba(119,119,94,.10); border-radius:clamp(12px,1.8cqw,19px); background:rgba(255,253,248,.20); }
+.play-area { grid-template-rows:30cqw 26cqw; }
+.left-notes,.game-log,.resume-section,.left-notes .text-section { min-height:0; overflow:hidden; }
+.left-notes ol,.left-notes ul,.game-log ul { overflow:hidden; }
