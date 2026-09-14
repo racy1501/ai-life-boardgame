@@ -110,11 +110,25 @@ class TestStartGame(RuntimeMcpTestCase):
     def test_seed_and_forced_goals_are_optional(self):
         result = runtime_mcp.start_game()
         self.assertEqual(result['decision']['kind'], 'childhood_pick_1')
+        session = runtime_mcp._SESSIONS[result['session_id']]
+        self.assertEqual(session.player_identity, {
+            'name': 'AI玩家', 'emoji': '🤖'})
+
+    def test_display_identity_reaches_session_and_spectator_snapshot(self):
+        result = runtime_mcp.start_game(
+            seed=0, forced_goals=[1, 2], player_name='阿屿', player_emoji='🦊')
+        session = runtime_mcp._SESSIONS[result['session_id']]
+
+        self.assertEqual(session.player_identity, {
+            'name': '阿屿', 'emoji': '🦊'})
+        self.assertEqual(session.spectator_snapshot()['player_identity'], {
+            'name': '阿屿', 'emoji': '🦊'})
 
     def test_rejects_invalid_arguments(self):
         invalid = ({'seed': 'x'}, {'seed': True}, {'seed': 1.5},
                    {'forced_goals': [1]}, {'forced_goals': [1, 2, 3]},
-                   {'forced_goals': 'ab'}, {'forced_goals': [1, 'b']})
+                   {'forced_goals': 'ab'}, {'forced_goals': [1, 'b']},
+                   {'player_name': 1}, {'player_emoji': []})
         for kwargs in invalid:
             with self.subTest(kwargs=kwargs):
                 with self.assertRaises(ValueError):
@@ -275,7 +289,8 @@ class TestRuntimePassthrough(RuntimeMcpTestCase):
 
 class TestSpectatorHttpBridge(RuntimeMcpTestCase):
     def test_get_returns_same_session_snapshot_with_browser_headers(self):
-        started = runtime_mcp.start_game(seed=0, forced_goals=[1, 2])
+        started = runtime_mcp.start_game(
+            seed=0, forced_goals=[1, 2], player_name='阿屿', player_emoji='🦊')
         session_id = started['session_id']
         session = runtime_mcp._SESSIONS[session_id]
         port = self.start_spectator_server()
@@ -289,6 +304,8 @@ class TestSpectatorHttpBridge(RuntimeMcpTestCase):
         self.assertEqual(headers['Access-Control-Allow-Origin'], '*')
         self.assertEqual(headers['Cache-Control'], 'no-store')
         self.assertEqual(payload, session.spectator_snapshot())
+        self.assertEqual(payload['player_identity'], {
+            'name': '阿屿', 'emoji': '🦊'})
         self.assertIn('recent_events', payload)
         self.assertTrue(hasattr(session, '_access_lock'))
 

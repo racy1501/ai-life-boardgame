@@ -262,10 +262,17 @@ class GameSession:
     """暂停并推进一局游戏；当前走到首个成年回合的结束边界。"""
 
     def __init__(self, seed=None, rng=None, cfg=None, shuffle=True,
-                 forced_goals=None):
+                 forced_goals=None, player_name='AI玩家', player_emoji='🤖'):
         if seed is not None and rng is not None:
             raise ValueError('seed and rng are mutually exclusive')
         self.rng = rng if rng is not None else random.Random(seed)
+        # 仅用于 spectator 展示，不属于 Engine 规则状态或决策输入。
+        self.player_identity = {
+            'name': player_name if isinstance(player_name, str) and player_name
+            else 'AI玩家',
+            'emoji': player_emoji if isinstance(player_emoji, str) and player_emoji
+            else '🤖',
+        }
         # 仅供同一正式局在 MCP worker 与 HTTP listener 间互斥访问；
         # 不属于规则状态，不参与任何决策、序列化或 spectator 投影。
         self._access_lock = threading.RLock()
@@ -868,6 +875,7 @@ class GameSession:
             'stage': game.stage,
             'current_turn': game.turn,
             'completed_turn': completed_turn,
+            'player_identity': copy.deepcopy(self.player_identity),
             'opportunity_market': [
                 self._spectator_card_summary(cid) for cid in game.market],
             'fate_market': {

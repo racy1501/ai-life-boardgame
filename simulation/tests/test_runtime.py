@@ -3645,6 +3645,8 @@ class TestSpectatorSnapshot(unittest.TestCase):
         self.assertFalse(first['game_over'])
         self.assertEqual(first['current_turn'], 0)
         self.assertEqual(first['completed_turn'], 0)
+        self.assertEqual(first['player_identity'], {
+            'name': 'AI玩家', 'emoji': '🤖'})
         self.assertEqual(first['dice']['values'], [])
         self.assertEqual(first['dice']['frozen_indices'], [])
         self.assertEqual(first['recent_events'], [{
@@ -3652,6 +3654,17 @@ class TestSpectatorSnapshot(unittest.TestCase):
             'stage': 'youth', 'text': '游戏开始',
         }])
         self.assertEqual(json.loads(json.dumps(first)), first)
+
+    def test_snapshot_projects_display_only_player_identity(self):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2],
+                              player_name='阿屿', player_emoji='🦊')
+        before = self.runtime_state(session)
+
+        snapshot = session.spectator_snapshot()
+
+        self.assertEqual(snapshot['player_identity'], {
+            'name': '阿屿', 'emoji': '🦊'})
+        self.assertEqual(self.runtime_state(session), before)
 
     def test_snapshot_projects_live_market_hand_debuff_dice_and_cv_stack(self):
         session = self.make_session()

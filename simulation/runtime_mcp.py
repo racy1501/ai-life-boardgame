@@ -79,6 +79,11 @@ def _validate_forced_goals(forced_goals):
         raise ValueError('forced_goals 必须是两个整数，例如 [1, 2]')
 
 
+def _validate_display_text(value, field_name):
+    if value is not None and not isinstance(value, str):
+        raise ValueError('%s 必须是字符串或 null' % field_name)
+
+
 def _lookup_session(session_id):
     """返回 (session, error)；session 只存在于当前进程。"""
     session = _SESSIONS.get(session_id)
@@ -163,13 +168,19 @@ def _slim_result(result):
 
 
 def start_game(seed: Optional[int] = None,
-               forced_goals: Optional[List[int]] = None) -> Dict[str, Any]:
+               forced_goals: Optional[List[int]] = None,
+               player_name: Optional[str] = None,
+               player_emoji: Optional[str] = None) -> Dict[str, Any]:
     """开一局新游戏，返回 session_id 与首个 decision。"""
     _validate_seed(seed)
     _validate_forced_goals(forced_goals)
+    _validate_display_text(player_name, 'player_name')
+    _validate_display_text(player_emoji, 'player_emoji')
     session = GameSession(seed=seed,
                           forced_goals=None if forced_goals is None
-                          else list(forced_goals))
+                          else list(forced_goals),
+                          player_name=player_name or 'AI玩家',
+                          player_emoji=player_emoji or '🤖')
     session_id = str(uuid.uuid4())
     _SESSIONS[session_id] = session
     decision, _ = _with_session_lock(
