@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import json
 import random
 import sys
 import unittest
@@ -3591,6 +3592,106 @@ class TestJITPresentation(unittest.TestCase):
         self.assertEqual(yw03['payment_method'], 'gl_free_acquisition')
         self.assertIn('3 GL 免费取得', yw03['payment_summary'])
         self.assertIn('C05', yw03['payment_summary'])
+
+class TestSpectatorSnapshot(unittest.TestCase):
+    def make_session(self):
+        session = GameSession(seed=19, shuffle=False, forced_goals=[1, 2])
+        game = session.game
+        game.childhood_complete = True
+        game.stage = 'middle'
+        game.turn = 10
+        game.pre_roll_open = False
+        game.dice = ['H', 'BL', 'K', 'M']
+        game.market = ['MH-01', 'ME-01']
+        game.fate_market = ['F01']
+        game.hand = ['YE-01']
+        game.current_debuff = 'D06'
+        game.debuff_active_from_turn = 10
+        game.debuff_turns_remaining = 2
+        game.cv['H'] = ['YH-01', 'YH-02']
+        game.cv['K'] = ['YK-01']
+        session._previous_turn_result = {'completed_turn': 9}
+        session._turn_closeout_resolved = True
+        session._next_turn_started = True
+        session._rerolls_remaining = 2
+        return session
+
+    def runtime_state(self, session):
+        game = session.game
+        return copy.deepcopy((
+            game.turn, game.stage, game.game_over, game.dice, game.market,
+            game.fate_market, game.hand, game.cv, game.current_debuff,
+            game.debuff_turns_remaining, game.rng.getstate(),
+            session._decision_revision, session._previous_turn_result,
+            session._rerolls_remaining, session._purchase_ready,
+            session._purchase_executed, session._turn_closeout_resolved,
+            session._next_turn_started,
+        ))
+
+    def test_opening_snapshot_is_json_ready_and_never_enters_decision_flow(self):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        before = self.runtime_state(session)
+        with patch.object(session, 'current_decision',
+                          side_effect=AssertionError('must not be called')), \
+             patch.object(session, '_auto_advance',
+                          side_effect=AssertionError('must not be called')):
+            first = session.spectator_snapshot()
+            second = session.spectator_snapshot()
+
+        self.assertEqual(first, second)
+        self.assertEqual(self.runtime_state(session), before)
+        self.assertEqual(first['status'], 'in_progress')
+        self.assertFalse(first['game_over'])
+        self.assertEqual(first['current_turn'], 0)
+        self.assertEqual(first['completed_turn'], 0)
+        self.assertEqual(first['dice']['values'], [])
+        self.assertEqual(first['dice']['frozen_indices'], [])
+        self.assertEqual(json.loads(json.dumps(first)), first)
+
+    def test_snapshot_projects_live_market_hand_debuff_dice_and_cv_stack(self):
+        session = self.make_session()
+        before = self.runtime_state(session)
+        snapshot = session.spectator_snapshot()
+
+        self.assertEqual(snapshot['stage'], 'middle')
+        self.assertEqual(snapshot['current_turn'], 10)
+        self.assertEqual(snapshot['completed_turn'], 9)
+        self.assertEqual([card['card_id'] for card in
+                          snapshot['opportunity_market']], ['MH-01', 'ME-01'])
+        self.assertEqual(len(snapshot['opportunity_market']), 2)
+        self.assertEqual([card['card_id'] for card in
+                          snapshot['fate_market']['cards']], ['F01'])
+        self.assertFalse(snapshot['fate_market']['is_open'])
+        self.assertEqual([card['card_id'] for card in snapshot['event_hand']],
+                         ['YE-01'])
+        self.assertTrue(snapshot['event_hand'][0]['effect_summary'])
+        self.assertEqual(snapshot['current_debuff']['card_id'], 'D06')
+        self.assertEqual(snapshot['current_debuff']['name'], '睡眠不足')
+        self.assertEqual(snapshot['current_debuff']['active_from_turn'], 10)
+        self.assertEqual(snapshot['current_debuff']['turns_remaining'], 2)
+        self.assertIn('正常重掷轮数 -1',
+                      snapshot['current_debuff']['effect_summary'])
+        self.assertEqual(snapshot['dice']['values'], ['H', 'BL', 'K', 'M'])
+        self.assertEqual(snapshot['dice']['max_dice_count'], 7)
+        self.assertEqual(snapshot['dice']['frozen_indices'], [1])
+        self.assertEqual(snapshot['cv']['H']['top_card_id'], 'YH-02')
+        self.assertEqual([card['card_id'] for card in
+                          snapshot['cv']['H']['stack']], ['YH-01', 'YH-02'])
+        self.assertIsNone(snapshot['cv']['R']['top_card_id'])
+        self.assertEqual(snapshot['cv']['R']['stack'], [])
+        self.assertEqual([goal['id'] for goal in snapshot['life_goals']], [1, 2])
+        self.assertTrue(all(goal['scoring_text'] for goal in
+                            snapshot['life_goals']))
+        self.assertEqual(self.runtime_state(session), before)
+        self.assertEqual(json.loads(json.dumps(snapshot)), snapshot)
+
+    def test_non_reroll_state_has_no_effective_frozen_indices(self):
+        session = self.make_session()
+        session._purchase_ready = True
+        snapshot = session.spectator_snapshot()
+
+        self.assertEqual(snapshot['dice']['values'], ['H', 'BL', 'K', 'M'])
+        self.assertEqual(snapshot['dice']['frozen_indices'], [])
 
 
 if __name__ == '__main__':

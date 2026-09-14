@@ -668,6 +668,24 @@ class GameSession:
             card['special_note'] = _SPECIAL_NOTES[cid]
         return card
 
+    def _spectator_card_summary(self, cid):
+        """围观桌面所需的最小单卡展示投影；不下发原始完整规则字段。"""
+        card = CARDS[cid]
+        result = {
+            'card_id': cid,
+            'name': card['name'],
+            'type': card['type'],
+            'cost': dict(card['cost']),
+        }
+        if card['stage'] is not None:
+            result['stage'] = card['stage']
+        effect = _card_effect_summary(card)
+        if effect:
+            result['effect_summary'] = effect
+        if card.get('vp'):
+            result['vp'] = card['vp']
+        return result
+
     def _life_goals_summary(self, with_text=False):
         """当前 2 张 Life Goal；scoring_rule 直接取自 scoring.LG_RULES 共享事实源。
 
@@ -713,6 +731,78 @@ class GameSession:
             'active_from_turn': self.game.debuff_active_from_turn,
             'turns_remaining': self.game.debuff_turns_remaining,
             'card': self._presented_card(self.game.current_debuff),
+        }
+
+    def spectator_snapshot(self):
+        """返回当前正式局面的纯读取围观投影。
+
+        此方法不得调用 current_decision() 或 _auto_advance()：围观刷新不能
+        启动回合、掷骰、补市场或改变任何 Runtime 暂停状态。
+        """
+        game = self.game
+        completed_turn = (self._previous_turn_result or {}).get(
+            'completed_turn', 0)
+        dice = list(game.dice)
+        frozen_indices = []
+        # 只有统一骰后控制器实际处于可重掷阶段时，冻结索引才有展示语义。
+        # _decision_kind() 与 first_normal_reroll_status() 均只读取当前状态。
+        if (dice and self._decision_kind() in ('post_roll_decision',
+                                               'mh04_decision')):
+            frozen_indices = list(
+                game.first_normal_reroll_status()['frozen_indices'])
+
+        current_debuff = self._debuff_summary()
+        if current_debuff is not None:
+            card = current_debuff['card']
+            current_debuff = {
+                'card_id': current_debuff['card_id'],
+                'name': card['name'],
+                'active_from_turn': current_debuff['active_from_turn'],
+                'turns_remaining': current_debuff['turns_remaining'],
+                'effect_summary': card.get('effect_summary', ''),
+            }
+
+        cv = {}
+        for cls in 'HKRWP':
+            stack = list(game.cv[cls])
+            cv[cls] = {
+                'top_card_id': game.active(cls),
+                # stack 内所有牌都仍是当前持有履历，而非历史记录。
+                'stack': [self._spectator_card_summary(cid) for cid in stack],
+            }
+
+        goals = []
+        for goal in self._life_goals_summary(with_text=True):
+            goals.append({
+                'id': goal['id'],
+                'name': goal['name'],
+                'scoring_text': goal['scoring_text'],
+            })
+
+        return {
+            'status': 'game_over' if game.game_over else 'in_progress',
+            'game_over': game.game_over,
+            'stage': game.stage,
+            'current_turn': game.turn,
+            'completed_turn': completed_turn,
+            'opportunity_market': [
+                self._spectator_card_summary(cid) for cid in game.market],
+            'fate_market': {
+                'is_open': game.fate_window(),
+                'cards': [self._spectator_card_summary(cid)
+                          for cid in game.fate_market],
+            },
+            'life_goals': goals,
+            'event_hand': [
+                self._spectator_card_summary(cid) for cid in game.hand
+                if CARDS[cid]['type'] == 'E'],
+            'current_debuff': current_debuff,
+            'dice': {
+                'values': dice,
+                'max_dice_count': 7,
+                'frozen_indices': frozen_indices,
+            },
+            'cv': cv,
         }
 
     def _gl_bl_visible(self, kind):
