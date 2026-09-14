@@ -158,6 +158,79 @@ def _card_effect_summary(card):
     return '；'.join(parts) or None
 
 
+def _card_display_summary(cid):
+    """单卡统一展示投影：spectator snapshot 与 card catalog 共享同一事实源。
+
+    纯读正式 CARDS + _card_effect_summary 派生，不复制第二份 summary 实现。
+    stage / vp / effect_summary 恒存在（无值即 null / 0），由调用方按协议省略。
+    """
+    card = CARDS[cid]
+    return {
+        'card_id': cid,
+        'name': card['name'],
+        'type': card['type'],
+        'stage': card['stage'],
+        'cost': dict(card['cost']),
+        'vp': card['vp'],
+        'effect_summary': _card_effect_summary(card),
+    }
+
+
+# catalog details 白名单：按 type 只投影正式 CARDS 中真实存在的规则字段；
+# 不发明统一字段、不给缺失字段补 null、不暴露 Runtime 私有状态。
+_CATALOG_CV_RULE_FIELDS = (
+    'provide', 'extra_die', 'reroll', 'upkeep', 'sub_buy', 'upkeep_discount',
+    'upkeep_sub', 'shorten_debuff', 'cancel_debuff_once', 'bl_convert',
+    'convert_turn', 'flex')
+_CATALOG_EVENT_RULE_FIELDS = (
+    'temp_res', 'extra_reroll_rounds', 'protect_market', 'temp_dice',
+    'upkeep_reduce', 'pre_cancel_debuff')
+_CATALOG_CHILDHOOD_RULE_FIELDS = (
+    'temp_res', 'temp_gl', 'cancel_debuff', 'discount_type', 'temp_dice',
+    'abebe')
+_CATALOG_DEBUFF_RULE_FIELDS = (
+    'extra_cost', 'block_event', 'reroll_delta', 'gl_threshold',
+    'virtual_bl', 'block_type')
+_CATALOG_FATE_RULE_FIELDS = (
+    'immediate', 'reroll_delta', 'first_discount', 'upkeep_reduce',
+    'purchase_limit', 'extra_cost', 'discount', 'block_event', 'dice_delta',
+    'virtual_bl', 'lock_reroll_on_bl', 'wildcard_normal')
+_CARD_CATALOG_RULE_FIELDS = {
+    'H': _CATALOG_CV_RULE_FIELDS, 'K': _CATALOG_CV_RULE_FIELDS,
+    'R': _CATALOG_CV_RULE_FIELDS, 'W': _CATALOG_CV_RULE_FIELDS,
+    'P': _CATALOG_CV_RULE_FIELDS, 'E': _CATALOG_EVENT_RULE_FIELDS,
+    'C': _CATALOG_CHILDHOOD_RULE_FIELDS, 'D': _CATALOG_DEBUFF_RULE_FIELDS,
+    'F': _CATALOG_FATE_RULE_FIELDS,
+}
+
+
+def _json_ready(value):
+    """最小安全投影：tuple 转 list，使 catalog 严格等于其 JSON 序列化形态。"""
+    if isinstance(value, (tuple, list)):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_ready(item) for key, item in value.items()}
+    return value
+
+
+def card_catalog():
+    """正式 Card Catalog 只读投影：唯一来源 CARDS，JSON-ready，无副作用。
+
+    仅作展示，不参与任何规则判定；每次调用重新派生，不维护任何缓存状态。
+    """
+    cards = []
+    for cid in sorted(CARDS):
+        entry = _card_display_summary(cid)
+        card = CARDS[cid]
+        entry['details'] = {
+            key: _json_ready(copy.deepcopy(card[key]))
+            for key in _CARD_CATALOG_RULE_FIELDS[card['type']]
+            if key in card
+        }
+        cards.append(entry)
+    return {'cards': cards}
+
+
 def _payment_source_parts(plan):
     """从唯一支付 plan 派生改变其成本来源的极短说明；纯读 plan 字段。"""
     parts = []
@@ -759,22 +832,16 @@ class GameSession:
         return card
 
     def _spectator_card_summary(self, cid):
-        """围观桌面所需的最小单卡展示投影；不下发原始完整规则字段。"""
-        card = CARDS[cid]
-        result = {
-            'card_id': cid,
-            'name': card['name'],
-            'type': card['type'],
-            'cost': dict(card['cost']),
-        }
-        if card['stage'] is not None:
-            result['stage'] = card['stage']
-        effect = _card_effect_summary(card)
-        if effect:
-            result['effect_summary'] = effect
-        if card.get('vp'):
-            result['vp'] = card['vp']
-        return result
+        """围观桌面所需的最小单卡展示投影；不下发原始完整规则字段。
+
+        与 card catalog 共享 _card_display_summary 同一事实源；此处仅按
+        紧凑协议省略 null / 零值展示字段以控制 payload 体积。
+        """
+        summary = _card_display_summary(cid)
+        for key in ('stage', 'vp', 'effect_summary'):
+            if not summary[key]:
+                del summary[key]
+        return summary
 
     def _life_goals_summary(self, with_text=False):
         """当前 2 张 Life Goal；scoring_rule 直接取自 scoring.LG_RULES 共享事实源。

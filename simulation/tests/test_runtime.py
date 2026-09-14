@@ -12,8 +12,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ailife.cards import CARDS, LG_NAMES
 from ailife.engine import CONFIGS, Game
-from ailife.runtime import (GameSession, _SPECIAL_NOTES,
-                            _card_effect_summary)
+from ailife.runtime import (GameSession, _CARD_CATALOG_RULE_FIELDS,
+                            _SPECIAL_NOTES, _card_effect_summary,
+                            card_catalog)
 from ailife.scoring import (LG_RULES, flex_actives, full_score, lg_score,
                             lg_scoring_text)
 from ailife.strategies import Balanced
@@ -3887,6 +3888,101 @@ class TestSpectatorRecentEvents(unittest.TestCase):
         before = copy.deepcopy(session._recent_events)
         session._auto_advance()
         self.assertEqual(session._recent_events, before)
+
+
+class TestCardCatalog(unittest.TestCase):
+    """正式 Card Catalog 只读投影：唯一来源 CARDS，展示专用，无副作用。"""
+
+    def setUp(self):
+        self.catalog = card_catalog()
+        self.cards = self.catalog['cards']
+        self.by_id = {card['card_id']: card for card in self.cards}
+        self.base_fields = {'card_id', 'name', 'type', 'stage', 'cost',
+                            'vp', 'effect_summary', 'details'}
+
+    def test_catalog_is_derived_from_official_cards_exactly(self):
+        self.assertEqual(len(CARDS), 106)
+        self.assertEqual(len(self.cards), 106)
+        ids = [card['card_id'] for card in self.cards]
+        self.assertEqual(len(set(ids)), 106)
+        self.assertEqual(set(ids), set(CARDS))
+        for card in self.cards:
+            original = CARDS[card['card_id']]
+            self.assertEqual(card['name'], original['name'])
+            self.assertEqual(card['type'], original['type'])
+            self.assertEqual(card['stage'], original['stage'])
+            self.assertEqual(card['cost'], original['cost'])
+            self.assertEqual(card['vp'], original['vp'])
+
+    def test_all_nine_types_are_present(self):
+        self.assertEqual({card['type'] for card in self.cards},
+                         {'H', 'K', 'R', 'W', 'P', 'E', 'C', 'D', 'F'})
+
+    def test_every_card_has_uniform_base_schema(self):
+        for card in self.cards:
+            self.assertEqual(set(card), self.base_fields)
+
+    def test_vp_zero_is_kept_instead_of_dropped(self):
+        zero_vp = [card for card in self.cards if card['vp'] == 0]
+        self.assertTrue(zero_vp)
+        for card in zero_vp:
+            self.assertIn('vp', card)
+            self.assertEqual(card['vp'], 0)
+
+    def test_missing_stage_is_returned_as_null(self):
+        self.assertIsNone(self.by_id['C01']['stage'])
+        self.assertIsNone(self.by_id['D01']['stage'])
+        self.assertIsNone(self.by_id['F01']['stage'])
+        for card in self.cards:
+            if CARDS[card['card_id']]['stage'] is None:
+                self.assertIn('stage', card)
+                self.assertIsNone(card['stage'])
+
+    def test_effect_summary_reuses_official_shared_logic(self):
+        for card in self.cards:
+            self.assertEqual(card['effect_summary'],
+                             _card_effect_summary(CARDS[card['card_id']]))
+
+    def test_details_only_project_official_rule_fields(self):
+        for card in self.cards:
+            original = CARDS[card['card_id']]
+            whitelist = _CARD_CATALOG_RULE_FIELDS[card['type']]
+            # 只包含白名单 ∩ 真实存在字段：不发明字段，也不给缺失字段补 null。
+            self.assertEqual(set(card['details']),
+                             set(whitelist) & set(original))
+            for key, value in card['details'].items():
+                self.assertIsNotNone(value)
+
+    def test_details_match_respective_type_sets(self):
+        self.assertEqual(set(self.by_id['YH-01']['details']), {'provide'})
+        self.assertEqual(set(self.by_id['YK-05']['details']),
+                         {'provide', 'convert_turn'})
+        self.assertEqual(set(self.by_id['YE-01']['details']), {'temp_res'})
+        self.assertEqual(set(self.by_id['YE-03']['details']),
+                         {'extra_reroll_rounds'})
+        self.assertEqual(set(self.by_id['C05']['details']), {'temp_gl'})
+        self.assertEqual(set(self.by_id['C12']['details']), {'abebe'})
+        self.assertEqual(set(self.by_id['D01']['details']), {'extra_cost'})
+        self.assertEqual(set(self.by_id['D09']['details']), {'block_type'})
+        self.assertEqual(set(self.by_id['F10']['details']),
+                         {'wildcard_normal'})
+        self.assertEqual(set(self.by_id['F04']['details']),
+                         {'first_discount'})
+
+    def test_catalog_is_json_ready(self):
+        text = json.dumps(self.catalog, ensure_ascii=False)
+        self.assertIn('card_id', text)
+
+    def test_catalog_is_pure_read_only_projection(self):
+        before = copy.deepcopy(CARDS)
+        again = card_catalog()
+        self.assertEqual(again, self.catalog)
+        self.assertEqual(CARDS, before)
+        # 改动返回的投影不得泄漏回正式 CARDS（cost / details 均为独立拷贝）。
+        self.catalog['cards'][0]['cost']['H'] = 999
+        self.catalog['cards'][0]['details'].clear()
+        self.assertEqual(CARDS, before)
+        self.assertEqual(card_catalog(), again)
 
 
 if __name__ == '__main__':

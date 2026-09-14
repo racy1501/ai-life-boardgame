@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import runtime_mcp
-from ailife.runtime import GameSession
+from ailife.runtime import GameSession, card_catalog
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -448,6 +448,71 @@ class TestServerWiring(RuntimeMcpTestCase):
             'current_decision', {'session_id': 'nope'}))
         self.assertFalse(result_is_error(result))
         self.assertIn('unknown_session_id', result_text(result))
+
+
+class TestCardCatalogEndpoint(RuntimeMcpTestCase):
+    """GET /cards/catalog：与 session 无关的正式只读卡牌投影。"""
+
+    def test_catalog_returns_full_official_projection_with_browser_headers(self):
+        port = self.start_spectator_server()
+
+        status, headers, payload = self.spectator_get(port, '/cards/catalog')
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Type'],
+                         'application/json; charset=utf-8')
+        self.assertEqual(headers['Access-Control-Allow-Origin'], '*')
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertEqual(payload, card_catalog())
+        self.assertEqual(len(payload['cards']), 106)
+
+    def test_catalog_needs_no_session_and_never_touches_sessions(self):
+        port = self.start_spectator_server()
+
+        status, _, payload = self.spectator_get(port, '/cards/catalog')
+
+        self.assertEqual(status, 200)
+        self.assertEqual(len(payload['cards']), 106)
+        self.assertEqual(runtime_mcp._SESSIONS, {})
+
+    def test_catalog_projection_stays_readable_and_stable(self):
+        port = self.start_spectator_server()
+
+        first = self.spectator_get(port, '/cards/catalog')
+        second = self.spectator_get(port, '/cards/catalog')
+
+        self.assertEqual(first[2], second[2])
+        json.dumps(first[2], ensure_ascii=False)
+
+    def test_invalid_catalog_paths_and_post_are_structured_404(self):
+        port = self.start_spectator_server()
+
+        for path in ('/cards', '/cards/catalog/YH-01', '/not-a-route'):
+            status, _, payload = self.spectator_get(port, path)
+            self.assertEqual(status, 404)
+            self.assertEqual(payload, {'ok': False, 'error': 'not_found'})
+
+        connection = http.client.HTTPConnection('127.0.0.1', port, timeout=2)
+        connection.request('POST', '/cards/catalog')
+        response = connection.getresponse()
+        body = json.loads(response.read().decode('utf-8'))
+        connection.close()
+        self.assertEqual(response.status, 404)
+        self.assertEqual(body, {'ok': False, 'error': 'not_found'})
+
+    def test_session_snapshot_endpoint_still_works_alongside_catalog(self):
+        started = runtime_mcp.start_game(seed=0, forced_goals=[1, 2])
+        session_id = started['session_id']
+        session = runtime_mcp._SESSIONS[session_id]
+        port = self.start_spectator_server()
+
+        status, _, payload = self.spectator_get(
+            port, '/spectator/sessions/' + session_id)
+        catalog_status, _, _ = self.spectator_get(port, '/cards/catalog')
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, session.spectator_snapshot())
+        self.assertEqual(catalog_status, 200)
 
 
 if __name__ == '__main__':

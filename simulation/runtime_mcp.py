@@ -29,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 
-from ailife.runtime import GameSession
+from ailife.runtime import GameSession, card_catalog
 
 try:  # 官方 Python SDK 1.x
     from mcp.server.fastmcp import FastMCP as _McpServer
@@ -120,6 +120,10 @@ class _SpectatorRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        # 正式 Card Catalog：与 session 无关的只读投影，不触碰 _SESSIONS。
+        if path == '/cards/catalog':
+            self._send_json(200, card_catalog())
+            return
         parts = path.split('/')
         if (len(parts) != 4 or parts[:3] != ['', 'spectator', 'sessions']
                 or not parts[3]):
