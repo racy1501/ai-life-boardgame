@@ -74,3 +74,31 @@
 
 /* 基础规则是观战用的静态说明，不参与桌面状态或任何规则判定。 */
 .rules-modal { display:flex; flex-direction:column; width:760px; height:630px; max-width:calc(100vw - 40px); max-height:calc(100vh - 40px); padding:26px 30px 24px; border:1px solid #ece8de; border-radius:23px; color:var(--ink); background:#fffdf8; box-shadow:0 20px 55px rgba(68,59,44,.18); }.rules-modal::backdrop { background:rgba(71,75,66,.16); backdrop-filter:blur(2px); }.rules-modal:not([open]) { display:none; }.rules-modal .modal-close { position:absolute; top:12px; right:17px; border:0; color:#9da498; background:transparent; font-size:27px; cursor:pointer; }.rules-modal h2 { margin:6px 0 0; font-size:22px; font-weight:600; }.rules-content { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 20px; min-height:0; margin-top:16px; padding:2px 4px 8px 0; overflow-y:auto; }.rules-content section { min-width:0; padding:13px 15px; border:1px solid rgba(157,145,112,.13); border-radius:14px; background:linear-gradient(145deg,rgba(255,254,249,.84),rgba(247,243,232,.55)); }.rules-content .rules-intro,.rules-content .rules-score { grid-column:1 / -1; }.rules-content h3 { margin:0 0 7px; color:#637360; font-size:15px; font-weight:600; }.rules-content p { margin:0; color:#7c8779; font-size:13px; line-height:1.65; }.rules-content p + p { margin-top:6px; }.rules-flow { display:flex; flex-wrap:wrap; gap:7px 0; margin:0; padding:0; list-style:none; }.rules-flow li { display:flex; align-items:center; color:#748070; font-size:12px; line-height:1.45; }.rules-flow li:not(:last-child)::after { margin:0 7px; color:#b9b09a; content:'→'; }.rules-dice { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:6px; margin:1px 0 9px; }.rules-dice figure { margin:0; text-align:center; }.rules-dice img { display:block; width:100%; max-width:42px; margin:0 auto 3px; filter:drop-shadow(0 3px 4px rgba(107,97,76,.1)); }.rules-dice figcaption { color:#849083; font-size:11px; white-space:nowrap; }.resume-kinds { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:9px; }.resume-kinds span { padding:4px 8px; border:1px solid rgba(126,145,120,.16); border-radius:7px; background:rgba(232,240,225,.56); color:#6d7c69; font-size:12px; }.other-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }.other-cards article { min-width:0; padding:8px 9px; border:1px solid rgba(119,119,94,.10); border-top:3px solid transparent; border-radius:10px; }.other-cards h4 { margin:0 0 3px; color:#687568; font-size:12px; font-weight:600; }.other-cards p { font-size:11px; line-height:1.5; }.other-cards .childhood { border-top-color:#c9b285; }.other-cards .event { border-top-color:#8ba3b8; }.other-cards .fate { border-top-color:#9d8cb5; }.other-cards .debuff { border-top-color:#b98d8d; }.rules-score { background:linear-gradient(145deg,rgba(250,248,238,.86),rgba(238,244,231,.62)) !important; }
+
+/* 骰果来自 Runtime；此处仅让未冻结骰短暂轮换现有图标。 */
+.die.is-rolling { animation:dice-roll-wobble 110ms ease-in-out infinite alternate; }.die.is-rolling .die-icon { animation:dice-roll-icon 110ms ease-in-out infinite alternate; }@keyframes dice-roll-wobble { from { transform:translateY(-2px) rotate(-3deg); } to { transform:translateY(2px) rotate(3deg); } }@keyframes dice-roll-icon { from { opacity:.68; transform:rotate(-8deg) scale(.91); } to { opacity:1; transform:rotate(8deg) scale(1.04); } }@media (prefers-reduced-motion:reduce) { .die.is-rolling,.die.is-rolling .die-icon { animation:none; } }
+
+/* 冻结骰仍是有效骰面，仅以细红斜杠标记不可普通重掷。 */
+.die.frozen { opacity:1; filter:none; }
+.die { position:relative; overflow:hidden; }
+.die.frozen::after { position:absolute; top:50%; left:50%; width:72%; height:1.5px; border-radius:999px; background:rgba(180,81,76,.82); content:''; transform:translate(-50%,-50%) rotate(-35deg); }
+.dice-rule-hint { flex:none; margin:clamp(5px,.7cqw,8px) 0 0; color:#a1a89c; font-size:clamp(9px,1.05cqw,11px); line-height:1.35; text-align:center; }
+
+/* 提升桌面正文小字的可读性；保持画布、卡片尺寸与信息密度不变。 */
+.section-title span { font-size:clamp(10px,1.2cqw,12px); }
+.card-type { font-size:clamp(9px,1.1cqw,12px); }
+.card-effect { font-size:clamp(11px,1.4cqw,14px); line-height:1.4; }
+.game-card footer { font-size:clamp(10px,1.2cqw,12px); }
+.text-section li { font-size:clamp(11px,1.35cqw,14px); line-height:1.4; }
+.text-section li span { font-size:clamp(10px,1.25cqw,13px); }
+.left-notes #debuff-detail span,.left-notes #debuff-detail small { font-size:clamp(10px,1.25cqw,13px); }
+.game-log li { font-size:clamp(11px,1.3cqw,14px); line-height:1.4; }
+.player-turn { font-size:clamp(11px,1.3cqw,14px); }
+.player-identity-card #round-status { font-size:clamp(10px,1.15cqw,12px); }
+.dice-count { font-size:clamp(11px,1.3cqw,14px); }
+.dice-rule-hint { font-size:clamp(10px,1.2cqw,13px); }
+.more-button { font-size:clamp(10px,1.15cqw,12px); }
+.market-card footer b { font-size:clamp(12px,1.5cqw,16px); }
+.event-item { margin:0 0 12px; }
+.event-item b { display:block; color:#627161; font-size:clamp(14px,1.8cqw,19px); font-weight:600; line-height:1.4; }
+.event-item .event-more { display:inline-flex; align-items:center; margin-top:8px; padding:6px 12px; font-size:clamp(11px,1.3cqw,14px); white-space:nowrap; }
