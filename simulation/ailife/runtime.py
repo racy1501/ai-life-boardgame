@@ -379,6 +379,8 @@ class GameSession:
         self._initial_roll_resolved = False
         self._pre_roll_effects_used = None
         self._decision_revision = 0
+        # 围观层的正式随机骰果序列；不复用通用 decision revision。
+        self._dice_roll_revision = 0
         # 展示层专用：已展示过的通用机制 hint key。只在 submit_action
         # 成功接受后更新；current_decision 纯读，不参与任何规则判定。
         self.seen_rule_hints = set()
@@ -491,6 +493,7 @@ class GameSession:
 
     def _finish_first_roll(self):
         self.game.roll_first_dice()
+        self._dice_roll_revision += 1
         self._rerolls_remaining = self.game.normal_reroll_rounds()
         self._append_recent_event(
             'dice_rolled', '掷出 %d 颗骰子' % len(self.game.dice),
@@ -959,6 +962,7 @@ class GameSession:
                 'values': dice,
                 'max_dice_count': 7,
                 'frozen_indices': frozen_indices,
+                'roll_revision': self._dice_roll_revision,
             },
             'cv': cv,
             'recent_events': copy.deepcopy(self._recent_events),
@@ -1685,14 +1689,21 @@ class GameSession:
                             'decision': current}
                 if use_ye03:
                     self._rerolls_remaining += 1
-                if use_c11 and not self.game.use_reroll_c11():
-                    return {'ok': False, 'error': 'illegal_action',
-                            'decision': self.current_decision()}
+                c11_added = False
+                if use_c11:
+                    dice_count_before_c11 = len(self.game.dice)
+                    if not self.game.use_reroll_c11():
+                        return {'ok': False, 'error': 'illegal_action',
+                                'decision': self.current_decision()}
+                    c11_added = len(self.game.dice) > dice_count_before_c11
                 rerolled = self.game.apply_normal_reroll(action['indices'], c12_index)
                 if rerolled is False:
                     return {'ok': False, 'error': 'illegal_action',
                             'decision': self.current_decision()}
+                if c11_added:
+                    self._dice_roll_revision += 1
                 if rerolled:
+                    self._dice_roll_revision += 1
                     self.game.stats.run['reroll_rounds_used'] += 1
                     self.game.stats.run['dice_rerolled'] += rerolled
                     self._append_recent_event(
@@ -1720,6 +1731,7 @@ class GameSession:
                         action['ability_card_id'], action['die_index']):
                     return {'ok': False, 'error': 'illegal_action',
                             'decision': current}
+                self._dice_roll_revision += 1
                 self._append_recent_event(
                     'rerolled', '重掷 1 颗骰子',
                     {'reroll_count': 1,

@@ -3623,7 +3623,8 @@ class TestSpectatorSnapshot(unittest.TestCase):
             game.turn, game.stage, game.game_over, game.dice, game.market,
             game.fate_market, game.hand, game.cv, game.current_debuff,
             game.debuff_turns_remaining, game.rng.getstate(),
-            session._decision_revision, session._previous_turn_result,
+            session._decision_revision, session._dice_roll_revision,
+            session._previous_turn_result,
             session._rerolls_remaining, session._purchase_ready,
             session._purchase_executed, session._turn_closeout_resolved,
             session._next_turn_started,
@@ -3650,6 +3651,7 @@ class TestSpectatorSnapshot(unittest.TestCase):
             'name': 'AI玩家', 'emoji': '🤖'})
         self.assertEqual(first['dice']['values'], [])
         self.assertEqual(first['dice']['frozen_indices'], [])
+        self.assertEqual(first['dice']['roll_revision'], 0)
         self.assertEqual(first['recent_events'], [{
             'seq': 1, 'type': 'game_started', 'turn': 0,
             'stage': 'youth', 'text': '游戏开始',
@@ -3712,6 +3714,95 @@ class TestSpectatorSnapshot(unittest.TestCase):
 
         self.assertEqual(snapshot['dice']['values'], ['H', 'BL', 'K', 'M'])
         self.assertEqual(snapshot['dice']['frozen_indices'], [])
+
+
+class TestSpectatorDiceRollRevision(unittest.TestCase):
+    def _post_roll_session(self, dice=('H', 'K', 'R', 'M')):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        first = session.current_decision()
+        second = session.submit_action(first['decision_id'], {
+            'card_id': 'C12'})['decision']
+        session.game._forced = list(dice) + ['H'] * 20
+        result = session.submit_action(second['decision_id'], {'card_id': 'C09'})
+        self.assertTrue(result['ok'])
+        return session, result['decision']
+
+    def test_snapshot_starts_at_zero_and_initial_roll_increments_once(self):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 0)
+
+        first = session.current_decision()
+        second = session.submit_action(first['decision_id'], {
+            'card_id': 'C12'})['decision']
+        session.game._forced = ['H', 'K', 'R', 'M']
+        result = session.submit_action(second['decision_id'], {'card_id': 'C09'})
+
+        self.assertTrue(result['ok'])
+        self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 1)
+
+    def test_normal_reroll_increments_even_when_face_is_unchanged(self):
+        session, decision = self._post_roll_session()
+        before = list(session.game.dice)
+        session.game._forced = [before[0]]
+
+        result = session.submit_action(decision['decision_id'], {
+            'choice': 'normal_reroll', 'indices': [0], 'use_ye03': False,
+            'use_c11': False, 'c12_index': None})
+
+        self.assertTrue(result['ok'])
+        self.assertEqual(session.game.dice, before)
+        self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 2)
+
+    def test_rejected_reroll_does_not_increment(self):
+        session, decision = self._post_roll_session()
+        result = session.submit_action(decision['decision_id'], {
+            'choice': 'normal_reroll', 'indices': [99], 'use_ye03': False,
+            'use_c11': False, 'c12_index': None})
+
+        self.assertFalse(result['ok'])
+        self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 1)
+
+    def test_non_random_and_deterministic_dice_actions_do_not_increment(self):
+        session, decision = self._post_roll_session()
+        result = session.submit_action(decision['decision_id'], {
+            'choice': 'proceed_to_purchase'})
+        self.assertTrue(result['ok'])
+        self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 1)
+
+        session, _ = self._post_roll_session(('BL', 'BL', 'H', 'K'))
+        session.game.cv['H'] = ['MH-04']
+        session.game.mh04_trigger_seen = False
+        session.game._after_dice_change()
+        reaction = session.current_decision()
+        self.assertEqual(reaction['kind'], 'mh04_decision')
+        result = session.submit_action(reaction['decision_id'], {
+            'choice': 'use', 'target_index': 0})
+
+        self.assertTrue(result['ok'])
+        self.assertEqual(session.game.dice[0], 'H')
+        self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 1)
+
+    def test_special_reroll_and_c11_added_dice_each_increment_once(self):
+        session, decision = self._post_roll_session()
+        session.game.cv['K'] = ['MK-02']
+        session.game._forced = ['H']
+        result = session.submit_action(decision['decision_id'], {
+            'choice': 'special_reroll', 'ability_card_id': 'MK-02',
+            'die_index': 0, 'use_ye03': False})
+
+        self.assertTrue(result['ok'])
+        self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 2)
+
+        session, decision = self._post_roll_session()
+        session.game.hand.append('C11')
+        session.game._forced = ['H', 'K']
+        result = session.submit_action(decision['decision_id'], {
+            'choice': 'normal_reroll', 'indices': [], 'use_ye03': False,
+            'use_c11': True, 'c12_index': None})
+
+        self.assertTrue(result['ok'])
+        self.assertEqual(len(session.game.dice), 6)
+        self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 2)
 
 
 class TestSpectatorRecentEvents(unittest.TestCase):
@@ -3987,4 +4078,3 @@ class TestCardCatalog(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
