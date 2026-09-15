@@ -10,7 +10,7 @@
     <div class="board-space">
       <main class="page-shell" aria-label="AI 人生桌游静态视觉原型">
       <header class="page-header">
-        <div><p>AI 人生桌游</p><h1>一局正在发生的人生</h1></div>
+        <div class="title-block"><p>AI 人生桌游</p><div class="title-actions"><h1>一局正在发生的人生</h1><div class="title-tag-group"><button id="open-card-catalog" class="catalog-button" type="button">全部卡牌 <span>→</span></button></div></div></div>
       </header>
       <section class="markets" aria-label="市场">
         <div class="market-block opportunity-market"><div class="section-title inline-title"><h2>机会市场</h2><span>当前 5 张</span></div><div id="opportunity-cards" class="card-row five-cards"></div></div>
@@ -43,6 +43,7 @@
     <dialog id="resume-modal" class="resume-modal" aria-labelledby="modal-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">本类履历堆</p><h2 id="modal-title"></h2><p id="modal-note"></p><ul id="modal-cards"></ul></dialog>
     <dialog id="goal-modal" class="goal-modal" aria-labelledby="goal-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">人生目标</p><h2 id="goal-title"></h2><p id="goal-scoring" class="goal-scoring"></p></dialog>
     <dialog id="card-detail-modal" class="card-detail-modal" aria-labelledby="card-detail-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label" id="card-detail-kind"></p><h2 id="card-detail-title"></h2><div class="card-detail-body"><div class="card-detail-side" id="card-detail-card"></div><div class="card-detail-info"><dl id="card-detail-facts" class="detail-list"></dl><dl id="card-detail-rules" class="detail-list"></dl></div></div></dialog>
+    <dialog id="card-catalog-modal" class="card-catalog-modal" aria-labelledby="card-catalog-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">卡牌图鉴</p><div class="catalog-heading"><div class="catalog-heading-main"><h2 id="card-catalog-title">全部卡牌</h2><p class="catalog-hint">点击卡牌可查看详情</p></div><span id="card-catalog-count"></span></div><div id="card-catalog-filters" class="catalog-filters" aria-label="按类型筛选"></div><p id="card-catalog-status" class="catalog-status" aria-live="polite"></p><div id="card-catalog-cards" class="catalog-cards"></div></dialog>
     <script src="app.js"></script>
   </body>
 </html>

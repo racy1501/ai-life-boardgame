@@ -30,7 +30,7 @@ const DEFAULT_PLAYER_IDENTITY = { name: 'AI玩家', emoji: '🤖' };
 
 const formatCost = (cost) => typeof cost === 'string' ? cost : Object.entries(cost || {}).map(([symbol, count]) => `${symbol}×${count}`).join(' ') || '—';
 const cardMeta = (type) => TYPE_META[type] || { label: type || 'Card', color: 'work' };
-const renderCard = (card, { fate = false, resume = false, detail = false, index = 0 } = {}) => {
+const renderCard = (card, { fate = false, resume = false, detail = false, typeLabel = null, index = 0 } = {}) => {
   const meta = cardMeta(card.type);
   const classes = fate ? 'game-card fate-card' : `game-card ${resume ? 'resume-card' : 'market-card'} ${detail ? 'detail-card ' : ''}${resume ? card.color : meta.color}`;
   const footer = fate ? '命运的赠礼' : detail
@@ -39,7 +39,7 @@ const renderCard = (card, { fate = false, resume = false, detail = false, index 
   const dataId = card.card_id ? ` data-card-id="${escapeHtml(card.card_id)}"` : '';
   const effectClass = detail ? 'card-effect card-effect-full' : 'card-effect';
   const effectHtml = detail ? formatEffectText(card.effect_summary || card.effect) : escapeHtml(card.effect_summary || card.effect || '暂无');
-  return `<article class="${classes}"${dataId}><p class="card-type">${escapeHtml(fate ? 'FATE' : meta.label)}</p><h3>${escapeHtml(card.name || '暂无')}</h3><p class="${effectClass}">${effectHtml}</p><footer>${footer}</footer></article>`;
+  return `<article class="${classes}"${dataId}><p class="card-type">${escapeHtml(fate ? 'FATE' : typeLabel || meta.label)}</p><h3>${escapeHtml(card.name || '暂无')}</h3><p class="${effectClass}">${effectHtml}</p><footer>${footer}</footer></article>`;
 };
 const renderCardSlots = (selector, cards, slotCount, options = {}) => {
   const visibleCards = cards.slice(0, slotCount);
@@ -88,17 +88,25 @@ const modal = element('#resume-modal');
 const openResume = (card) => { element('#modal-title').textContent = card.type; const held = card.held || []; element('#modal-note').textContent = held.length ? `本类仍持有的履历堆共 ${held.length} 张，按当前堆叠顺序展示，「当前」为顶牌。` : '本类当前没有持有牌。'; element('#modal-cards').innerHTML = held.length ? held.map((item) => `<li>${renderCard({ ...item, type: card.type, color: card.color })}${item.is_top ? '<span class="current-badge">当前</span>' : ''}</li>`).join('') : '<li class="modal-empty">本类履历堆为空</li>'; modal.showModal(); };
 element('#resume-cards').addEventListener('click', (event) => { const button = event.target.closest('.more-button'); if (button) openResume(displayedResume[button.dataset.index]); }); element('.modal-close').addEventListener('click', () => modal.close()); modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
 
-// 统一 Card Detail：只读读取正式 /cards/catalog，不复制、不改写卡牌规则。
+// 图鉴与 Card Detail 共用唯一的正式 /cards/catalog 缓存，不复制、不改写卡牌规则。
 let cardCatalogById = null;
+let cardCatalogLoading = null;
 const loadCardCatalog = async () => {
-  try {
+  if (cardCatalogById) return true;
+  if (cardCatalogLoading) return cardCatalogLoading;
+  cardCatalogLoading = (async () => {
+    try {
     const response = await fetch(`${spectatorBase}/cards/catalog`);
-    if (!response.ok) return;
+    if (!response.ok) return false;
     const payload = await response.json();
     const map = {};
     for (const card of payload.cards || []) map[card.card_id] = card;
     cardCatalogById = map;
-  } catch (_) { /* catalog 不可达：主桌面照常，详情入口轻量无反应 */ }
+    return true;
+    } catch (_) { return false; /* catalog 不可达：主桌面照常，详情入口轻量无反应 */
+    } finally { cardCatalogLoading = null; }
+  })();
+  return cardCatalogLoading;
 };
 const DETAIL_FIELD_LABELS = {
   provide: '提供资源', extra_die: '额外骰子', reroll: '额外重掷', upkeep: '维护',
@@ -195,6 +203,33 @@ element('.card-detail-modal .modal-close').addEventListener('click', () => cardD
 cardDetailModal.addEventListener('click', (event) => { if (event.target === cardDetailModal) cardDetailModal.close(); });
 const bindCardDetail = (selector) => element(selector).addEventListener('click', (event) => { if (event.target.closest('.more-button')) return; const cardEl = event.target.closest('.game-card[data-card-id]'); if (cardEl) openCardDetail(cardEl.dataset.cardId); });
 bindCardDetail('#opportunity-cards'); bindCardDetail('#fate-cards'); bindCardDetail('#resume-cards'); bindCardDetail('#modal-cards');
+
+const cardCatalogModal = element('#card-catalog-modal');
+const CATALOG_TYPES = ['H', 'K', 'R', 'W', 'P', 'E', 'C', 'D', 'F'];
+let catalogFilter = 'all';
+const renderCardCatalog = () => {
+  const cards = Object.values(cardCatalogById || {});
+  const filtered = catalogFilter === 'all' ? cards : cards.filter((card) => card.type === catalogFilter);
+  element('#card-catalog-count').textContent = `${filtered.length} 张`;
+  element('#card-catalog-filters').innerHTML = [
+    ['all', '全部'],
+    ...CATALOG_TYPES.map((type) => [type, TYPE_META[type].zh]),
+  ].map(([type, label]) => `<button class="catalog-filter${catalogFilter === type ? ' is-active' : ''}" type="button" data-type="${type}" aria-pressed="${catalogFilter === type}">${label}</button>`).join('');
+  element('#card-catalog-cards').innerHTML = filtered.map((card) => renderCard(card, { typeLabel: cardMeta(card.type).zh })).join('');
+};
+const openCardCatalog = async () => {
+  element('#card-catalog-status').textContent = cardCatalogById ? '' : '正在读取正式卡牌…';
+  if (!cardCatalogModal.open) cardCatalogModal.showModal();
+  const loaded = await loadCardCatalog();
+  if (!loaded) { element('#card-catalog-status').textContent = '暂时无法读取卡牌图鉴，主桌面仍可正常使用。'; return; }
+  element('#card-catalog-status').textContent = '';
+  renderCardCatalog();
+};
+element('#open-card-catalog').addEventListener('click', openCardCatalog);
+element('.card-catalog-modal .modal-close').addEventListener('click', () => cardCatalogModal.close());
+cardCatalogModal.addEventListener('click', (event) => { if (event.target === cardCatalogModal) cardCatalogModal.close(); });
+element('#card-catalog-filters').addEventListener('click', (event) => { const button = event.target.closest('.catalog-filter'); if (!button) return; catalogFilter = button.dataset.type; renderCardCatalog(); });
+bindCardDetail('#card-catalog-cards');
 const goalModal = element('#goal-modal');
 element('#goals-list').addEventListener('click', (event) => { const button = event.target.closest('.goal-more'); if (!button) return; const goal = displayedGoals[button.dataset.index]; if (!goal) return; element('#goal-title').textContent = goal[0]; element('#goal-scoring').textContent = goal[1] || '暂无计分说明'; goalModal.showModal(); });
 element('.goal-modal .modal-close').addEventListener('click', () => goalModal.close());
