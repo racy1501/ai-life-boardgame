@@ -89,7 +89,8 @@ let displayedEvents = [];
 const renderGoalList = (goals) => { displayedGoals = goals; element('#goals-list').innerHTML = goals.map((goal, index) => `<li class="goal-item"><b>${escapeHtml(goal[0])}</b><button class="more-button goal-more" data-index="${index}" type="button">详情 <span>→</span></button></li>`).join('') || '<li class="goal-item"><b>暂无</b></li>'; };
 const renderEventList = (events) => { displayedEvents = events; element('#events-list').innerHTML = events.length ? events.map((card, index) => `<li class="event-item"><b>${escapeHtml(card.name)}</b><button class="more-button event-more" data-index="${index}" type="button">详情 <span>→</span></button></li>`).join('') : '<li class="event-item"><b>暂无</b></li>'; };
 const renderDesk = (game, { renderDicePool = true } = {}) => {
-  element('#round-status').textContent = `${game.phase} · 第 ${game.round} / 23 回合 · ${game.connection}`;
+  element('#round-status').textContent = `${game.phase} · 第 ${game.round} / 23 回合`;
+  setConnectionLabel(game.connection);
   element('.opportunity-market .section-title span').textContent = `当前 ${game.opportunity.length} 张`;
   renderCardSlots('#opportunity-cards', game.opportunity, 5);
   renderCardSlots('#fate-cards', game.fate, 2, { fate: true });
@@ -326,7 +327,7 @@ const startDiceRollAnimation = () => {
     if (latestSpectatorDice) renderDice(latestSpectatorDice, latestSpectatorMaxDiceCount);
   }, DICE_ROLL_DURATION_MS);
 };
-const setConnectionLabel = (label) => { const status = element('#round-status'); status.textContent = status.textContent.replace(/· (静态预览|连接中|已连接|已结束|session 不存在|bridge 不可达)$/, `· ${label}`); };
+const setConnectionLabel = (label) => { element('#connection-status').textContent = label && label !== '已连接' ? label : ''; };
 const pollSnapshot = async () => {
   if (pollInFlight) return;
   pollInFlight = true;
