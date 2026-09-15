@@ -43,7 +43,8 @@ def _card_effect_summary(card):
         parts.append('购买%s牌时可用 1×%s 替代 1×%s（每次购买每条限一次）'
                      % (scope, opt['from'], opt['to']))
     if card.get('extra_die'):
-        parts.append('每回合额外掷 %d 骰（上限 7）' % card['extra_die'])
+        parts.append('每回合额外获得 %d 颗骰子，骰池最多可有 7 颗。'
+                     % card['extra_die'])
     if card.get('reroll'):
         text = {'non_bl': '1 颗非 BL 骰', 'bl': '1 颗 BL 骰',
                 'non_gl_bl': '1 颗非 GL/BL 骰'}[card['reroll']['filter']]
@@ -82,7 +83,8 @@ def _card_effect_summary(card):
         parts.append('本次购买结算临时提供 GL×%d（属正常 GL，可计入 3 GL '
                      '免费取得）' % card['temp_gl'])
     if card.get('temp_dice'):
-        parts.append('使用后本回合临时 +%d 骰（上限 7）' % card['temp_dice'])
+        parts.append('使用后，本回合额外获得 %d 颗骰子，骰池最多可有 7 颗。'
+                     % card['temp_dice'])
     if card.get('cancel_debuff'):
         parts.append('可取消一次 Debuff 触发（不抽牌）')
     if card.get('protect_market'):
@@ -121,7 +123,8 @@ def _card_effect_summary(card):
         if card.get('reroll_delta'):
             parts.append('生效期间正常重掷轮数 %+d' % card['reroll_delta'])
         if card.get('dice_delta'):
-            parts.append('生效期间每回合 +%d 骰（上限 7）' % card['dice_delta'])
+            parts.append('生效期间每回合额外获得 %d 颗骰子，骰池最多可有 7 颗。'
+                         % card['dice_delta'])
         if card.get('purchase_limit'):
             parts.append('生效期间每次购买最多取得 %d 张普通牌'
                          % card['purchase_limit'])
