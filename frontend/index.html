@@ -11,11 +11,10 @@
       <main class="page-shell" aria-label="AI 人生桌游静态视觉原型">
       <header class="page-header">
         <div><p>AI 人生桌游</p><h1>一局正在发生的人生</h1></div>
-        <span id="round-status"></span>
       </header>
       <section class="markets" aria-label="市场">
-        <div class="market-block opportunity-market"><div class="section-title"><h2>机会市场</h2><span>当前 5 张</span></div><div id="opportunity-cards" class="card-row five-cards"></div></div>
-        <div class="market-block fate-market"><div class="section-title"><h2>命运市场</h2><span>Fate</span></div><div id="fate-cards" class="card-row two-cards"></div></div>
+        <div class="market-block opportunity-market"><div class="section-title inline-title"><h2>机会市场</h2><span>当前 5 张</span></div><div id="opportunity-cards" class="card-row five-cards"></div></div>
+        <div class="market-block fate-market"><div class="section-title"><h2>命运市场</h2></div><div id="fate-cards" class="card-row two-cards"></div></div>
       </section>
       <section class="play-area" aria-label="本局桌面">
         <aside class="left-notes">
@@ -26,20 +25,24 @@
         <section class="life-center" aria-label="玩家身份与骰子池">
           <article class="player-identity-card" aria-label="玩家身份">
             <p id="player-name" class="player-name"></p>
+            <span id="round-status"></span>
             <div id="player-emoji" class="player-avatar" aria-label="玩家头像"></div>
             <p id="player-turn" class="player-turn"></p>
           </article>
           <article class="dice-pool-card" aria-label="本回合骰池">
             <h2>本回合骰池</h2>
+            <p id="dice-count" class="dice-count"></p>
             <div id="dice-row" class="dice-row"></div>
           </article>
         </section>
         <section class="game-log text-section" aria-label="游戏日志"><h2>游戏日志</h2><ul id="log-list"></ul></section>
-        <section class="resume-section" aria-label="当前履历"><div class="section-title"><h2>当前履历</h2><span>当前顶部 / active 履历</span></div><div id="resume-cards" class="card-row five-cards resume-cards"></div></section>
+        <section class="resume-section" aria-label="当前履历"><div class="section-title"><h2>当前履历</h2></div><div id="resume-cards" class="card-row five-cards resume-cards"></div></section>
       </section>
       </main>
     </div>
     <dialog id="resume-modal" class="resume-modal" aria-labelledby="modal-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">本类履历堆</p><h2 id="modal-title"></h2><p id="modal-note"></p><ul id="modal-cards"></ul></dialog>
+    <dialog id="goal-modal" class="goal-modal" aria-labelledby="goal-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">人生目标</p><h2 id="goal-title"></h2><p id="goal-scoring" class="goal-scoring"></p></dialog>
+    <dialog id="card-detail-modal" class="card-detail-modal" aria-labelledby="card-detail-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label" id="card-detail-kind"></p><h2 id="card-detail-title"></h2><div class="card-detail-body"><div class="card-detail-side" id="card-detail-card"></div><div class="card-detail-info"><dl id="card-detail-facts" class="detail-list"></dl><dl id="card-detail-rules" class="detail-list"></dl></div></div></dialog>
     <script src="app.js"></script>
   </body>
 </html>

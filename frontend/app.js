@@ -16,10 +16,11 @@ const demoGame = {
 const element = (selector) => document.querySelector(selector);
 const list = (selector, values, render) => { element(selector).innerHTML = values.map(render).join(''); };
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
-const TYPE_META = {
-  H: { label: 'Health', color: 'health' }, Health: { label: 'Health', color: 'health' }, K: { label: 'Knowledge', color: 'knowledge' }, Knowledge: { label: 'Knowledge', color: 'knowledge' }, R: { label: 'Relationship', color: 'relationship' }, Relationship: { label: 'Relationship', color: 'relationship' }, W: { label: 'Work', color: 'work' }, Work: { label: 'Work', color: 'work' }, P: { label: 'Possession', color: 'possession' }, Possession: { label: 'Possession', color: 'possession' }, E: { label: 'Event', color: 'work' }, Event: { label: 'Event', color: 'work' },
-};
-const STAGE_LABELS = { youth: '青年期', middle: '中年期', old: '老年期' };
+const TYPE_META = {};
+for (const [key, [label, zh, color]] of Object.entries({
+  H: ['Health', '健康', 'health'], K: ['Knowledge', '知识', 'knowledge'], R: ['Relationship', '关系', 'relationship'], W: ['Work', '工作', 'work'], P: ['Possession', '财产', 'possession'], E: ['Event', '事件', 'event'], C: ['Childhood', '童年', 'childhood'], D: ['Debuff', '逆境', 'debuff'], F: ['Fate', '命运', 'fate'],
+})) { TYPE_META[key] = { label, zh, color }; TYPE_META[label] = { label, zh, color }; }
+const STAGE_LABELS = { youth: '青年期', middle: '中年期', elder: '老年期' };
 const CV_TYPES = [['H', 'Health'], ['K', 'Knowledge'], ['R', 'Relationship'], ['W', 'Work'], ['P', 'Possession']];
 const DICE_ICONS = {
   H: './assets/dice/dice-h.png', K: './assets/dice/dice-k.png', R: './assets/dice/dice-r.png',
@@ -29,12 +30,16 @@ const DEFAULT_PLAYER_IDENTITY = { name: 'AI玩家', emoji: '🤖' };
 
 const formatCost = (cost) => typeof cost === 'string' ? cost : Object.entries(cost || {}).map(([symbol, count]) => `${symbol}×${count}`).join(' ') || '—';
 const cardMeta = (type) => TYPE_META[type] || { label: type || 'Card', color: 'work' };
-const renderCard = (card, { fate = false, resume = false, index = 0 } = {}) => {
+const renderCard = (card, { fate = false, resume = false, detail = false, index = 0 } = {}) => {
   const meta = cardMeta(card.type);
-  const classes = fate ? 'game-card fate-card' : `game-card ${resume ? 'resume-card' : 'market-card'} ${resume ? card.color : meta.color}`;
-  const footer = fate ? '命运的赠礼' : `<span>成本</span><b>${escapeHtml(formatCost(card.cost))}</b>${card.vp ? `<span>VP ${escapeHtml(card.vp)}</span>` : ''}`;
-  const more = resume ? `<button class="more-button" data-index="${index}" type="button">more <span>→</span></button>` : '';
-  return `<article class="${classes}"><p class="card-type">${escapeHtml(fate ? 'FATE' : meta.label)}</p><h3>${escapeHtml(card.name || '暂无')}</h3><p class="card-effect">${escapeHtml(card.effect_summary || card.effect || '暂无')}</p><footer>${footer}</footer>${more}</article>`;
+  const classes = fate ? 'game-card fate-card' : `game-card ${resume ? 'resume-card' : 'market-card'} ${detail ? 'detail-card ' : ''}${resume ? card.color : meta.color}`;
+  const footer = fate ? '命运的赠礼' : detail
+    ? `<span>成本</span><b>${formatCostChips(card.cost)}</b>${card.vp ? `<span>计分</span><b>+${escapeHtml(card.vp)}</b>` : ''}`
+    : `<span>成本</span><b>${escapeHtml(formatCost(card.cost))}</b>${card.vp ? `<span>VP ${escapeHtml(card.vp)}</span>` : ''}`;
+  const dataId = card.card_id ? ` data-card-id="${escapeHtml(card.card_id)}"` : '';
+  const effectClass = detail ? 'card-effect card-effect-full' : 'card-effect';
+  const effectHtml = detail ? formatEffectText(card.effect_summary || card.effect) : escapeHtml(card.effect_summary || card.effect || '暂无');
+  return `<article class="${classes}"${dataId}><p class="card-type">${escapeHtml(fate ? 'FATE' : meta.label)}</p><h3>${escapeHtml(card.name || '暂无')}</h3><p class="${effectClass}">${effectHtml}</p><footer>${footer}</footer></article>`;
 };
 const renderCardSlots = (selector, cards, slotCount, options = {}) => {
   const visibleCards = cards.slice(0, slotCount);
@@ -44,9 +49,12 @@ const renderCardSlots = (selector, cards, slotCount, options = {}) => {
 };
 const renderTextList = (selector, items, emptyText) => list(selector, items.length ? items : [[emptyText, '']], (item) => { const [name, detail] = Array.isArray(item) ? item : [item.name, item.effect_summary]; return `<li><b>${escapeHtml(name || emptyText)}</b>${detail ? `<span>${escapeHtml(detail)}</span>` : ''}</li>`; });
 const renderDie = (die) => { const icon = DICE_ICONS[die.value]; return `<div class="die ${die.frozen ? 'frozen' : ''} ${die.muted ? 'muted' : ''}" aria-label="${escapeHtml(die.value)}">${icon ? `<img class="die-icon" src="${icon}" alt="${escapeHtml(die.value)}" />` : ''}</div>`; };
+const DICE_SLOT_COUNT = 7;
 const renderDice = (dice) => {
-  const groups = [dice.slice(0, 3), dice.slice(3, 5), dice.slice(5, 7)].filter((group) => group.length);
-  element('#dice-row').innerHTML = groups.map((group) => `<div class="dice-row-group">${group.map(renderDie).join('')}</div>`).join('');
+  element('#dice-count').textContent = `${dice.length}/${DICE_SLOT_COUNT}`;
+  const slots = Array.from({ length: DICE_SLOT_COUNT }, (_, index) => index < dice.length ? renderDie(dice[index]) : '<div class="die die-empty" aria-label="未生效骰位"></div>');
+  const groups = [slots.slice(0, 3), slots.slice(3, 5), slots.slice(5, 7)];
+  element('#dice-row').innerHTML = groups.map((group) => `<div class="dice-row-group">${group.join('')}</div>`).join('');
 };
 const renderPlayerIdentity = (identity, round) => {
   const safeIdentity = { ...DEFAULT_PLAYER_IDENTITY, ...(identity || {}) };
@@ -56,15 +64,17 @@ const renderPlayerIdentity = (identity, round) => {
 };
 
 let displayedResume = demoGame.resume;
+let displayedGoals = [];
+const renderGoalList = (goals) => { displayedGoals = goals; element('#goals-list').innerHTML = goals.map((goal, index) => `<li class="goal-item"><b>${escapeHtml(goal[0])}</b><button class="more-button goal-more" data-index="${index}" type="button">详情 <span>→</span></button></li>`).join('') || '<li class="goal-item"><b>暂无</b></li>'; };
 const renderDesk = (game) => {
   element('#round-status').textContent = `${game.phase} · 第 ${game.round} / 23 回合 · ${game.connection}`;
   element('.opportunity-market .section-title span').textContent = `当前 ${game.opportunity.length} 张`;
   renderCardSlots('#opportunity-cards', game.opportunity, 5);
   renderCardSlots('#fate-cards', game.fate, 2, { fate: true });
-  renderTextList('#goals-list', game.goals, '暂无'); renderTextList('#events-list', game.events, '暂无');
+  renderGoalList(game.goals); renderTextList('#events-list', game.events, '暂无');
   element('#debuff-detail').innerHTML = game.debuff ? `<b>${escapeHtml(game.debuff.name)}</b><span>${escapeHtml(game.debuff.turns)}</span><small>${escapeHtml(game.debuff.effect)}</small>` : '<span>暂无</span>';
   renderTextList('#log-list', game.logs.map((text) => [text, '']), '暂无'); renderDice(game.dice); renderPlayerIdentity(game.playerIdentity, game.round);
-  displayedResume = game.resume; list('#resume-cards', displayedResume, (card, index) => renderCard(card, { resume: true, index }));
+  displayedResume = game.resume; list('#resume-cards', displayedResume, (card, index) => `<div class="resume-card-wrap">${renderCard(card, { resume: true, index })}<button class="more-button" data-index="${index}" type="button">more <span>→</span></button></div>`);
 };
 const renderDemo = () => renderDesk({ phase: demoGame.phase, round: demoGame.round, connection: '静态预览', playerIdentity: demoGame.playerIdentity, opportunity: demoGame.opportunity, fate: demoGame.fate, goals: demoGame.goals, events: demoGame.events, debuff: demoGame.debuff, logs: demoGame.logs, dice: demoGame.dice, resume: demoGame.resume });
 const snapshotToDesk = (snapshot) => {
@@ -77,6 +87,118 @@ const snapshotToDesk = (snapshot) => {
 const modal = element('#resume-modal');
 const openResume = (card) => { element('#modal-title').textContent = card.type; const held = card.held || []; element('#modal-note').textContent = held.length ? `本类仍持有的履历堆共 ${held.length} 张，按当前堆叠顺序展示，「当前」为顶牌。` : '本类当前没有持有牌。'; element('#modal-cards').innerHTML = held.length ? held.map((item) => `<li>${renderCard({ ...item, type: card.type, color: card.color })}${item.is_top ? '<span class="current-badge">当前</span>' : ''}</li>`).join('') : '<li class="modal-empty">本类履历堆为空</li>'; modal.showModal(); };
 element('#resume-cards').addEventListener('click', (event) => { const button = event.target.closest('.more-button'); if (button) openResume(displayedResume[button.dataset.index]); }); element('.modal-close').addEventListener('click', () => modal.close()); modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
+
+// 统一 Card Detail：只读读取正式 /cards/catalog，不复制、不改写卡牌规则。
+let cardCatalogById = null;
+const loadCardCatalog = async () => {
+  try {
+    const response = await fetch(`${spectatorBase}/cards/catalog`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    const map = {};
+    for (const card of payload.cards || []) map[card.card_id] = card;
+    cardCatalogById = map;
+  } catch (_) { /* catalog 不可达：主桌面照常，详情入口轻量无反应 */ }
+};
+const DETAIL_FIELD_LABELS = {
+  provide: '提供资源', extra_die: '额外骰子', reroll: '额外重掷', upkeep: '维护',
+  sub_buy: '支付替代', upkeep_discount: '维护减免', upkeep_sub: '维护替代',
+  shorten_debuff: '缩短逆境', cancel_debuff_once: '取消逆境（每局一次）',
+  bl_convert: '厄运转换', convert_turn: '资源转换', flex: '可变产出',
+  temp_res: '临时资源', temp_gl: '临时好运', extra_reroll_rounds: '额外重掷轮数',
+  protect_market: '市场保护', temp_dice: '临时骰子', upkeep_reduce: '维护费减免',
+  pre_cancel_debuff: '预先取消逆境', cancel_debuff: '取消逆境',
+  discount_type: '购买折扣类别', abebe: '阿贝贝', extra_cost: '额外成本',
+  block_event: '事件限制', reroll_delta: '重掷轮数变化', gl_threshold: '好运门槛',
+  virtual_bl: '额外厄运', block_type: '取得限制', immediate: '取得时立即',
+  first_discount: '首购折扣', purchase_limit: '购买限制', discount: '购买折扣',
+  dice_delta: '骰子变化', lock_reroll_on_bl: 'BL 锁重掷',
+  wildcard_normal: '好运当普通资源',
+};
+const DETAIL_KEY_LABELS = {
+  type: '类别', sym: '符号', n: '数量', from: '从', to: '到', reduce: '减少',
+  cost: '成本', filter: '限定',
+};
+// 资源符号（H/K/R/M/GL/BL，M=金钱）与牌类型 code（H/K/R/W/P/E/C/D/F）是两套语义。
+const RESOURCE_META = {
+  H: { zh: '健康', icon: DICE_ICONS.H }, K: { zh: '知识', icon: DICE_ICONS.K },
+  R: { zh: '关系', icon: DICE_ICONS.R }, M: { zh: '金钱', icon: DICE_ICONS.M },
+  GL: { zh: '好运', icon: DICE_ICONS.GL }, BL: { zh: '厄运', icon: DICE_ICONS.BL },
+};
+const CARD_TYPE_ZH = {
+  H: '健康牌', K: '知识牌', R: '关系牌', W: '工作牌', P: '财产牌',
+  E: '事件牌', C: '童年牌', D: '逆境牌', F: '命运牌',
+};
+const zhCardType = (code) => CARD_TYPE_ZH[code] || code;
+const resourceChip = (sym, n) => RESOURCE_META[sym] ? `<span class="res-chip"><img class="res-icon" src="${RESOURCE_META[sym].icon}" alt="${RESOURCE_META[sym].zh}" />${RESOURCE_META[sym].zh}${n ? `×${n}` : ''}</span>` : escapeHtml(String(sym));
+const formatCostChips = (cost) => { const entries = Object.entries(cost || {}); return entries.length ? entries.map(([sym, n]) => resourceChip(sym, n)).join(' ') : '—'; };
+const DETAIL_IMMEDIATE_ZH = { set_active: '立即置顶生效一张履历', replace_goal: '立即替换一张人生目标' };
+const DETAIL_FILTER_ZH = { non_bl: '1 颗非厄运骰', bl: '1 颗厄运骰', non_gl_bl: '1 颗非好运/厄运骰' };
+const isResourcePair = (item) => Array.isArray(item) && item.length === 2 && typeof item[0] === 'string' && typeof item[1] === 'number' && RESOURCE_META[item[0]];
+const formatDetailValue = (key, value) => {
+  if (value === null || value === undefined) return key === 'scope' ? '任意类' : '—';
+  if (value === true) return '是';
+  if (value === false) return '否';
+  if (typeof value === 'number') return String(value);
+  if (Array.isArray(value)) {
+    if (isResourcePair(value)) return resourceChip(value[0], value[1]);
+    if (value.every(isResourcePair)) return value.map(([sym, n]) => resourceChip(sym, n)).join('、');
+    if (value.every((item) => typeof item === 'string' && RESOURCE_META[item])) return value.map((sym) => resourceChip(sym)).join('、');
+    if (key === 'scope') return `适用于 ${value.map(zhCardType).join('/')}`;
+    return value.map((item) => formatDetailValue(key, item)).join('；');
+  }
+  if (typeof value === 'object') {
+    const parts = [];
+    for (const [k, item] of Object.entries(value)) {
+      if (k === 'scope') { parts.push(item === null ? '适用 任意类' : formatDetailValue('scope', item)); continue; }
+      if (item === null) continue;
+      if (RESOURCE_META[k] && typeof item === 'number') { parts.push(resourceChip(k, item)); continue; }
+      parts.push(`${DETAIL_KEY_LABELS[k] || escapeHtml(k)} ${formatDetailValue(k, item)}`);
+    }
+    return parts.join('，');
+  }
+  if (key === 'immediate') return DETAIL_IMMEDIATE_ZH[value] || escapeHtml(value);
+  if (key === 'filter') return DETAIL_FILTER_ZH[value] || escapeHtml(value);
+  if (value === 'any') return key === 'sym' ? '任意符号' : '任意普通资源';
+  if (RESOURCE_META[value] && ['sym', 'from', 'to'].includes(key)) return resourceChip(value);
+  if (CARD_TYPE_ZH[value] && ['type', 'block_type', 'discount_type'].includes(key)) return zhCardType(value);
+  return escapeHtml(value);
+};
+// 正式 effect_summary 文案中的资源/骰面符号做纯展示替换（icon 化），不改动正文语义。
+const formatEffectText = (text) => {
+  if (!text) return '暂无';
+  return escapeHtml(text)
+    .replace(/([HKRMGLBL])×(\d+)/g, (m, sym, n) => resourceChip(sym, Number(n)))
+    .replace(/\b(GL|BL|[HKRM])\b/g, (m, sym) => resourceChip(sym));
+};
+const detailRow = (label, valueHtml, muted = false) => `<div class="fact-block"><p class="fact-label">${escapeHtml(label)}</p><p class="fact-value${muted ? ' detail-none' : ''}">${valueHtml}</p></div>`;
+const cardDetailModal = element('#card-detail-modal');
+const openCardDetail = (cardId) => {
+  const detail = cardCatalogById && cardCatalogById[cardId];
+  if (!detail) return;
+  const meta = cardMeta(detail.type);
+  element('#card-detail-kind').textContent = `${meta.zh} · ${meta.label}`;
+  element('#card-detail-title').textContent = detail.name;
+  element('#card-detail-card').innerHTML = renderCard(detail, { detail: true });
+  const facts = [];
+  if (detail.stage) facts.push(detailRow('阶段', escapeHtml(STAGE_LABELS[detail.stage] || detail.stage)));
+  facts.push(detailRow('成本', formatCostChips(detail.cost)));
+  if (detail.vp) facts.push(detailRow('计分', `+${detail.vp}`));
+  facts.push(detail.effect_summary ? detailRow('效果', formatEffectText(detail.effect_summary)) : detailRow('效果', '暂无摘要', true));
+  element('#card-detail-facts').innerHTML = facts.join('');
+  const rules = Object.entries(detail.details || {}).map(([key, value]) => detailRow(DETAIL_FIELD_LABELS[key] || escapeHtml(key), formatDetailValue(key, value)));
+  element('#card-detail-rules').innerHTML = rules.join('');
+  element('#card-detail-rules').hidden = rules.length === 0;
+  cardDetailModal.showModal();
+};
+element('.card-detail-modal .modal-close').addEventListener('click', () => cardDetailModal.close());
+cardDetailModal.addEventListener('click', (event) => { if (event.target === cardDetailModal) cardDetailModal.close(); });
+const bindCardDetail = (selector) => element(selector).addEventListener('click', (event) => { if (event.target.closest('.more-button')) return; const cardEl = event.target.closest('.game-card[data-card-id]'); if (cardEl) openCardDetail(cardEl.dataset.cardId); });
+bindCardDetail('#opportunity-cards'); bindCardDetail('#fate-cards'); bindCardDetail('#resume-cards'); bindCardDetail('#modal-cards');
+const goalModal = element('#goal-modal');
+element('#goals-list').addEventListener('click', (event) => { const button = event.target.closest('.goal-more'); if (!button) return; const goal = displayedGoals[button.dataset.index]; if (!goal) return; element('#goal-title').textContent = goal[0]; element('#goal-scoring').textContent = goal[1] || '暂无计分说明'; goalModal.showModal(); });
+element('.goal-modal .modal-close').addEventListener('click', () => goalModal.close());
+goalModal.addEventListener('click', (event) => { if (event.target === goalModal) goalModal.close(); });
 
 const sessionId = new URLSearchParams(window.location.search).get('session_id');
 const spectatorBase = 'http://127.0.0.1:8765';
@@ -91,7 +213,7 @@ const pollSnapshot = async () => {
   try { const response = await fetch(`${spectatorBase}/spectator/sessions/${encodeURIComponent(sessionId)}`); if (!response.ok) { setConnectionLabel(response.status === 404 ? 'session 不存在' : 'bridge 不可达'); return; } renderDesk(snapshotToDesk(await response.json())); hasSnapshot = true; } catch (_) { setConnectionLabel('bridge 不可达'); } finally { pollInFlight = false; pollTimer = window.setTimeout(pollSnapshot, 1200); }
 };
 renderDemo();
-if (sessionId) pollSnapshot();
+if (sessionId) { pollSnapshot(); loadCardCatalog(); }
 
 // 保留 1080×1080 内部设计画布，只按浏览器可用高度整体缩放。
 const DESIGN_BOARD_SIZE = 1080;
