@@ -230,6 +230,10 @@ element('.card-catalog-modal .modal-close').addEventListener('click', () => card
 cardCatalogModal.addEventListener('click', (event) => { if (event.target === cardCatalogModal) cardCatalogModal.close(); });
 element('#card-catalog-filters').addEventListener('click', (event) => { const button = event.target.closest('.catalog-filter'); if (!button) return; catalogFilter = button.dataset.type; renderCardCatalog(); });
 bindCardDetail('#card-catalog-cards');
+const rulesModal = element('#rules-modal');
+element('#open-rules').addEventListener('click', () => rulesModal.showModal());
+element('.rules-modal .modal-close').addEventListener('click', () => rulesModal.close());
+rulesModal.addEventListener('click', (event) => { if (event.target === rulesModal) rulesModal.close(); });
 const goalModal = element('#goal-modal');
 element('#goals-list').addEventListener('click', (event) => { const button = event.target.closest('.goal-more'); if (!button) return; const goal = displayedGoals[button.dataset.index]; if (!goal) return; element('#goal-title').textContent = goal[0]; element('#goal-scoring').textContent = goal[1] || '暂无计分说明'; goalModal.showModal(); });
 element('.goal-modal .modal-close').addEventListener('click', () => goalModal.close());
