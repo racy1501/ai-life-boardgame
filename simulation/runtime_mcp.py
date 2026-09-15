@@ -23,6 +23,7 @@ Engine 的判定，也不自行计算合法动作或购买/维护方案 —— �
 """
 import json
 import os
+import sys
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -120,6 +121,11 @@ class _SpectatorRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path == '/health':
+            self._send_json(200, {'ok': True, 'pid': os.getpid(),
+                                  'session_count': len(_SESSIONS),
+                                  'session_ids': sorted(_SESSIONS)})
+            return
         # 正式 Card Catalog：与 session 无关的只读投影，不触碰 _SESSIONS。
         if path == '/cards/catalog':
             self._send_json(200, card_catalog())
@@ -141,8 +147,15 @@ class _SpectatorRequestHandler(BaseHTTPRequestHandler):
         self._send_json(404, {'ok': False, 'error': 'not_found'})
 
 
+class _SpectatorHTTPServer(HTTPServer):
+    # HTTPServer 默认 allow_reuse_address=1；Windows 的 SO_REUSEADDR 允许
+    # 多进程同时绑定同一端口形成影子监听，必须关掉。
+    allow_reuse_address = False
+
+
 def _build_spectator_http_server(port):
-    return HTTPServer((_SPECTATOR_HOST, port), _SpectatorRequestHandler)
+    return _SpectatorHTTPServer((_SPECTATOR_HOST, port),
+                                _SpectatorRequestHandler)
 
 
 def _start_spectator_http_server(port):
@@ -234,7 +247,14 @@ def main():
         port = _spectator_port()
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
-    httpd, thread = _start_spectator_http_server(port)
+    try:
+        httpd, thread = _start_spectator_http_server(port)
+    except OSError:
+        # MCP 与 spectator 必须同进程；spectator 起不来就让整个 runtime_mcp
+        # fail-fast，避免再创建一个无法围观的局。
+        print('spectator bridge 无法绑定 127.0.0.1:%d：端口已被占用；'
+              '当前进程 PID=%d' % (port, os.getpid()), file=sys.stderr)
+        raise SystemExit(1)
     try:
         server.run()
     finally:

@@ -417,9 +417,23 @@ class TestSpectatorHttpBridge(RuntimeMcpTestCase):
                     else:
                         with self.assertRaisesRegex(RuntimeError, 'mcp stopped'):
                             runtime_mcp.main()
-                fake_httpd.shutdown.assert_called_once_with()
-                fake_httpd.server_close.assert_called_once_with()
-                fake_thread.join.assert_called_once_with()
+        fake_httpd.shutdown.assert_called_once_with()
+        fake_httpd.server_close.assert_called_once_with()
+        fake_thread.join.assert_called_once_with()
+
+    def test_port_conflict_fails_fast_whole_process(self):
+        with patch.object(runtime_mcp, 'server', Mock()), \
+             patch.object(runtime_mcp, '_start_spectator_http_server',
+                          side_effect=OSError(10048, '端口已被占用')), \
+             patch('sys.stderr') as fake_stderr:
+            with self.assertRaises(SystemExit) as caught:
+                runtime_mcp.main()
+        self.assertEqual(caught.exception.code, 1)
+        stderr_text = ''.join(str(call.args[0])
+                              for call in fake_stderr.write.call_args_list)
+        self.assertIn('无法绑定 127.0.0.1:8765', stderr_text)
+        self.assertIn('端口已被占用', stderr_text)
+        self.assertIn('PID=%d' % os.getpid(), stderr_text)
 
 
 @unittest.skipIf(runtime_mcp.server is None,
@@ -448,6 +462,55 @@ class TestServerWiring(RuntimeMcpTestCase):
             'current_decision', {'session_id': 'nope'}))
         self.assertFalse(result_is_error(result))
         self.assertIn('unknown_session_id', result_text(result))
+
+
+class TestHealthEndpoint(RuntimeMcpTestCase):
+    """GET /health：只读进程探针，用于识别浏览器实际连到哪个进程。"""
+
+    def test_health_reports_pid_and_live_session_count(self):
+        port = self.start_spectator_server()
+        status, _, empty = self.spectator_get(port, '/health')
+        self.assertEqual(status, 200)
+        self.assertEqual(empty, {'ok': True, 'pid': os.getpid(),
+                                 'session_count': 0, 'session_ids': []})
+
+        runtime_mcp.start_game(seed=0, forced_goals=[1, 2])
+        second = runtime_mcp.start_game(seed=0, forced_goals=[1, 2])
+
+        status, _, payload = self.spectator_get(port, '/health')
+        self.assertEqual(status, 200)
+        self.assertEqual(payload['pid'], os.getpid())
+        self.assertEqual(payload['session_count'], 2)
+        self.assertEqual(payload['session_ids'],
+                         sorted(runtime_mcp._SESSIONS))
+        self.assertIn(second['session_id'], payload['session_ids'])
+        # 只读：多打几次不改变任何状态。
+        before = len(runtime_mcp._SESSIONS)
+        self.spectator_get(port, '/health')
+        self.assertEqual(len(runtime_mcp._SESSIONS), before)
+
+    def test_health_is_read_only_against_state(self):
+        started = runtime_mcp.start_game(seed=0, forced_goals=[1, 2])
+        session = runtime_mcp._SESSIONS[started['session_id']]
+        port = self.start_spectator_server()
+        before = self.spectator_state(session)
+
+        status, _, _ = self.spectator_get(port, '/health')
+
+        self.assertEqual(status, 200)
+        self.assertEqual(self.spectator_state(session), before)
+
+
+class TestSpectatorServerBinding(RuntimeMcpTestCase):
+    """端口绑定必须独占：Windows 下禁止影子重复监听。"""
+
+    def test_server_class_disallows_reuse_address(self):
+        self.assertIs(runtime_mcp._SpectatorHTTPServer.allow_reuse_address,
+                      False)
+        httpd = runtime_mcp._build_spectator_http_server(0)
+        self.addCleanup(httpd.server_close)
+        self.assertIsInstance(httpd, runtime_mcp._SpectatorHTTPServer)
+        self.assertIs(httpd.allow_reuse_address, False)
 
 
 class TestCardCatalogEndpoint(RuntimeMcpTestCase):
