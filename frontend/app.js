@@ -36,6 +36,7 @@ const DICE_ICONS = {
   M: './assets/dice/dice-m.png', GL: './assets/dice/dice-gl.png', BL: './assets/dice/dice-bl.png',
 };
 const DEFAULT_PLAYER_IDENTITY = { name: 'AI玩家', emoji: '🤖' };
+const LOG_DISPLAY_LIMIT = 20;
 
 const formatCost = (cost) => typeof cost === 'string' ? cost : Object.entries(cost || {}).map(([symbol, count]) => `${symbol}×${count}`).join(' ') || '—';
 const cardMeta = (type) => TYPE_META[type] || { label: type || 'Card', color: 'work' };
@@ -96,7 +97,8 @@ const renderDesk = (game, { renderDicePool = true } = {}) => {
   renderCardSlots('#fate-cards', game.fate, 2, { fate: true });
   renderGoalList(game.goals); renderEventList(game.events);
   element('#debuff-detail').innerHTML = game.debuff ? `<b>${escapeHtml(game.debuff.name)}</b><span>${escapeHtml(game.debuff.turns)}</span><small>${escapeHtml(game.debuff.effect)}</small>` : '<span>暂无</span>';
-  renderTextList('#log-list', game.logs.map((text) => [text, '']), '暂无'); if (renderDicePool) renderDice(game.dice, game.maxDiceCount); renderPlayerIdentity(game.playerIdentity, game.round);
+  const visibleLogs = (game.logs || []).slice(0, LOG_DISPLAY_LIMIT);
+  renderTextList('#log-list', visibleLogs.map((text) => [text, '']), '暂无'); if (renderDicePool) renderDice(game.dice, game.maxDiceCount); renderPlayerIdentity(game.playerIdentity, game.round);
   ensureDiceRuleHint();
   displayedResume = game.resume; list('#resume-cards', displayedResume, (card, index) => `<div class="resume-card-wrap">${renderCard(card, { resume: true, showCost: false, index })}<button class="more-button" data-index="${index}" type="button">more <span>→</span></button></div>`);
 };
@@ -105,7 +107,7 @@ const snapshotToDesk = (snapshot) => {
   const stage = STAGE_LABELS[snapshot.stage] || snapshot.stage || '未开始';
   const frozen = new Set(snapshot.dice?.frozen_indices || []);
   const resume = CV_TYPES.map(([type, label]) => { const slot = snapshot.cv?.[type] || { stack: [], top_card_id: null }; const top = slot.stack.find((card) => card.card_id === slot.top_card_id); return top ? { ...top, type: label, color: cardMeta(label).color, held: slot.stack.map((card) => ({ ...card, is_top: card.card_id === slot.top_card_id })) } : { type: label, color: cardMeta(label).color, name: '暂无', effect_summary: '当前没有持有履历', held: [] }; });
-  return { phase: stage, round: snapshot.game_over ? snapshot.completed_turn : snapshot.current_turn, connection: snapshot.game_over || snapshot.status === 'game_over' ? '已结束' : '已连接', playerIdentity: snapshot.player_identity || DEFAULT_PLAYER_IDENTITY, opportunity: snapshot.opportunity_market || [], fate: snapshot.fate_market?.cards || [], goals: (snapshot.life_goals || []).map((goal) => [goal.name, goal.scoring_text]), events: snapshot.event_hand || [], debuff: snapshot.current_debuff ? { name: snapshot.current_debuff.name, turns: `剩余 ${snapshot.current_debuff.turns_remaining} 回合`, effect: snapshot.current_debuff.effect_summary } : null, logs: (snapshot.recent_events || []).slice(-6).map((event) => event.text), dice: (snapshot.dice?.values || []).map((value, index) => ({ value, frozen: frozen.has(index) })), maxDiceCount: snapshot.dice?.max_dice_count || DICE_SLOT_COUNT, rollRevision: snapshot.dice?.roll_revision, resume };
+  return { phase: stage, round: snapshot.game_over ? snapshot.completed_turn : snapshot.current_turn, connection: snapshot.game_over || snapshot.status === 'game_over' ? '已结束' : '已连接', playerIdentity: snapshot.player_identity || DEFAULT_PLAYER_IDENTITY, opportunity: snapshot.opportunity_market || [], fate: snapshot.fate_market?.cards || [], goals: (snapshot.life_goals || []).map((goal) => [goal.name, goal.scoring_text]), events: snapshot.event_hand || [], debuff: snapshot.current_debuff ? { name: snapshot.current_debuff.name, turns: `剩余 ${snapshot.current_debuff.turns_remaining} 回合`, effect: snapshot.current_debuff.effect_summary } : null, logs: (snapshot.recent_events || []).slice(-LOG_DISPLAY_LIMIT).reverse().map((event) => event.text), dice: (snapshot.dice?.values || []).map((value, index) => ({ value, frozen: frozen.has(index) })), maxDiceCount: snapshot.dice?.max_dice_count || DICE_SLOT_COUNT, rollRevision: snapshot.dice?.roll_revision, resume };
 };
 
 const modal = element('#resume-modal');
