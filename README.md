@@ -66,7 +66,7 @@ start_game
 
 ## 人类围观前端
 
-当前状态：**人类围观网页前端尚未开发。**
+当前状态：**spectator 网页前端已随仓库提供。**
 
 前端定位：
 
@@ -74,15 +74,14 @@ start_game
 - 前端不成为第二套规则事实源：正式游戏状态始终由 Runtime / Engine 决定，前端不做规则判定。
 - 人类前端主要用于围观与查看，不与 AI 轮流操作同一局游戏。
 
-后续计划加入轻量桌游视觉演出，例如：
+启动 Runtime / MCP 后，MCP bridge 默认监听 `127.0.0.1:8765`。拿到
+`start_game` 返回的 `session_id` 后，用浏览器打开：
 
-- 掷骰
-- 棋子移动
-- 卡牌翻开 / 获得
-- 人生阶段切换
-- 游戏进程与终局履历展示
+```text
+frontend/index.html?session_id=<session_id>
+```
 
-本仓库当前不包含任何前端文件，也不存在可访问的前端网页地址。视觉方向见基础策划文档第 18 节。
+前端只读取 spectator snapshot 展示游戏世界、卡牌、骰子、人生阶段、履历与结算过程；正式游戏状态始终由 Runtime / Engine 决定。
 
 ## 当前状态
 
@@ -92,8 +91,8 @@ start_game
 - ✅ 特殊能力、JIT 信息层、终局计分完成
 - ✅ 多轮真实模型完整黑盒可自然运行到 `game_over`
 - ✅ Runtime Payload Slim v1 已完成
-- 🔄 当前阶段：建立公开 Git 基线后进入人类围观前端开发
-- ⏳ 前端完成后进行整体验收
+- ✅ spectator 前端与 Runtime bridge 已完成
+- 🔄 当前阶段：Release Candidate 交付收尾
 - ⏳ 最后交由外部接入方进行正式 MCP 封装、VPS 部署与游戏站接入
 
 数值结构与大规模平衡调整当前处于冻结状态。已有的单局试玩分数与路线只用于 Runtime 信息、接口与可理解性验收，不作为平衡结论。
@@ -104,8 +103,12 @@ start_game
 AI人生桌游/
 ├── README.md
 ├── LICENSE
-├── AI人生桌游-基础策划文档-v0.6-运行时同步版-2026-09-14.md
-├── AI人生桌游-完整卡牌表-v0.6.md
+├── AI人生桌游-基础策划文档-v0.7.md
+├── AI人生桌游-完整卡牌表-v0.7.md
+├── frontend/
+│   ├── index.html
+│   ├── app.js
+│   └── style.css
 └── simulation/
     ├── ailife/            # 规则与运行时核心：cards / engine / runtime / scoring / stats / strategies
     ├── runtime_mcp.py     # 本地测试 MCP，只提供三个正式工具
@@ -166,8 +169,8 @@ uv run --no-project --with mcp --with pytest python -m pytest tests -q
 
 ## 文档
 
-- [基础策划文档](AI人生桌游-基础策划文档-v0.6-运行时同步版-2026-09-14.md)：规则、Runtime 设计、系统架构与当前开发基线。
-- [完整卡牌表](AI人生桌游-完整卡牌表-v0.6.md)：当前正式牌池、能力与 Life Goal 计分公式。
+- [基础策划文档](AI人生桌游-基础策划文档-v0.7.md)：规则、Runtime 设计、系统架构与当前开发基线。
+- [完整卡牌表](AI人生桌游-完整卡牌表-v0.7.md)：当前正式牌池、能力与 Life Goal 计分公式。
 
 基础策划文档是当前规则与开发基线的正式来源；卡牌数值与能力以完整卡牌表为准。
 
