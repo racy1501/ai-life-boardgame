@@ -1150,8 +1150,12 @@ class GameSession:
                 # 目标条目自身即提交字段（ordinary_card_ids/fate_card_id），
                 # 不再重复下发同一组合集的 legal_actions。
                 legal_actions = ()
-                purchase_view = {'purchase_targets':
-                                 self._purchase_targets_view()}
+                purchase_view = {
+                    'purchase_targets': self._purchase_targets_view(),
+                    'action_instruction':
+                        '第一阶段只提交 ordinary_card_ids 和 fate_card_id 选择购买目标；'
+                        'payment_options 仅是支付摘要，不能当作 plan_id 提交。',
+                }
             else:
                 groups = self._purchase_target_groups()
                 if self._purchase_target not in groups:
@@ -1163,6 +1167,10 @@ class GameSession:
                         'ordinary_card_ids': list(self._purchase_target[0]),
                         'fate_card_id': self._purchase_target[1]},
                     'legal_acquisition_plans': plans,
+                    'action_instruction':
+                        '第二阶段只从本次返回的 legal_acquisition_plans 或 legal_actions '
+                        '选择 plan_id；提交时必须使用本阶段最新的 decision_id，不能复用上阶段的 '
+                        'decision_id 或 plan_id。current_decision() 只读取当前状态，不会生成新 plan。',
                 }
         else:
             # 骰后只预览可取得目标集合；支付来源与方案分支仅在购买节点公开。

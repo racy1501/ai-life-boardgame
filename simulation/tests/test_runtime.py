@@ -1607,6 +1607,26 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         again = session.current_decision()
         self.assertEqual(again, second)
 
+    def test_purchase_two_stage_instructions_keep_latest_decision_and_plan_scope_clear(self):
+        session, ready = self.ready_session(
+            ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
+        self.assertIn('第一阶段只提交 ordinary_card_ids 和 fate_card_id',
+                      ready['action_instruction'])
+        self.assertIn('payment_options 仅是支付摘要', ready['action_instruction'])
+        target = {'ordinary_card_ids': ['YH-01'], 'fate_card_id': None}
+        selected = session.submit_action(ready['decision_id'], target)
+        self.assertTrue(selected['ok'])
+        second = selected['decision']
+        self.assertNotEqual(second['decision_id'], ready['decision_id'])
+        self.assertIn('第二阶段只从本次返回的 legal_acquisition_plans',
+                      second['action_instruction'])
+        self.assertIn('本阶段最新的 decision_id', second['action_instruction'])
+        self.assertIn('不能复用上阶段的 decision_id 或 plan_id',
+                      second['action_instruction'])
+        self.assertIn('current_decision() 只读取当前状态',
+                      second['action_instruction'])
+        self.assertEqual(session.current_decision(), second)
+
     def test_first_layer_payment_options_expose_childhood_discount_source(self):
         session, ready = self.ready_session(
             ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
