@@ -72,27 +72,67 @@ def activate_fate(game, cid):
 
 
 class TestDebuffV06(unittest.TestCase):
-    def test_three_bl_triggers_one_debuff(self):
+    def test_final_real_bl_accumulates_across_turns(self):
         g = make_v06()
-        g.pool = Counter({'BL': 3})
+        for turn, dice, total in ((1, ['BL', 'BL'], 2),
+                                  (2, ['BL', 'BL'], 4)):
+            g.turn = turn
+            g.dice = dice
+            self.assertEqual(g.record_final_bad_luck(), 2)
+            self.assertEqual(g.bad_luck_accumulator, total)
+            g._debuff_check()
+            self.assertIsNone(g.current_debuff)
+        g.turn = 3
+        g.dice = ['BL']
+        self.assertEqual(g.record_final_bad_luck(), 1)
+        g._debuff_check()
+        self.assertEqual(g.current_debuff, 'D01')
+        self.assertEqual(g.bad_luck_accumulator, 0)
+
+    def test_rerolled_away_bl_is_not_recorded(self):
+        g = make_v06()
+        g.turn = 1
+        g.abebe_held = True
+        g.dice = ['BL', 'H']
+        g._forced = ['K']
+        self.assertEqual(g.apply_normal_reroll({0}, c12_index=0), 1)
+        self.assertEqual(g.dice, ['K', 'H'])
+        self.assertEqual(g.record_final_bad_luck(), 0)
+        self.assertEqual(g.bad_luck_accumulator, 0)
+
+    def test_final_bl_is_recorded_only_once_per_turn(self):
+        g = make_v06()
+        g.turn = 1
+        g.dice = ['BL'] * 6
+        self.assertEqual(g.record_final_bad_luck(), 6)
+        self.assertEqual(g.record_final_bad_luck(), 0)
+        g._debuff_check()
+        g._debuff_check()
+        self.assertEqual(g.stats.game['debuff_drawn'], ['D01'])
+
+    def test_five_accumulated_bl_triggers_one_debuff_and_clears(self):
+        g = make_v06()
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertEqual(g.current_debuff, 'D01')
         self.assertEqual(len(g.debuff_deck), 11)
         self.assertEqual(g.stats.game['debuff_triggers'], 1)
+        self.assertEqual(g.bad_luck_accumulator, 0)
 
     def test_six_bl_still_triggers_one_debuff(self):
         g = make_v06()
-        g.pool = Counter({'BL': 6})
+        g.bad_luck_accumulator = 6
         g._debuff_check()
         self.assertEqual(g.current_debuff, 'D01')
         self.assertEqual(g.stats.game['debuff_drawn'], ['D01'])
+        self.assertEqual(g.bad_luck_accumulator, 0)
 
     def test_draw_without_replacement_and_no_reshuffle_when_empty(self):
         g = make_v06()
-        g.pool = Counter({'BL': 3})
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         g.turn += 1
-        g.pool = Counter({'BL': 3})
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertEqual(g.debuff_history, ['D01'])
         self.assertEqual(g.current_debuff, 'D02')
@@ -101,7 +141,7 @@ class TestDebuffV06(unittest.TestCase):
         g.debuff_deck = []
         g._finish_current_debuff('replaced_early')
         g.turn += 1
-        g.pool = Counter({'BL': 3})
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertIsNone(g.current_debuff)
         self.assertEqual(g.debuff_deck, [])
@@ -109,7 +149,7 @@ class TestDebuffV06(unittest.TestCase):
     def test_starts_next_turn_and_lasts_exactly_three_complete_turns(self):
         g = make_v06()
         g.turn = 1
-        g.pool = Counter({'BL': 3})
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertIsNone(g.active_debuff_card())
         for turn, remaining in ((2, 2), (3, 1)):
@@ -126,7 +166,7 @@ class TestDebuffV06(unittest.TestCase):
     def test_new_debuff_replaces_old_and_old_enters_history(self):
         g = make_v06()
         activate_debuff(g, 'D01')
-        g.pool = Counter({'BL': 3})
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertEqual(g.debuff_history, ['D01'])
         self.assertEqual(g.current_debuff, 'D02')
@@ -137,7 +177,7 @@ class TestDebuffV06(unittest.TestCase):
         before = list(g.debuff_deck)
         g.hand = ['C06']
         g.strat.debuff_choice = {'cancel': 'C06'}
-        g.pool = Counter({'BL': 3})
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertEqual(g.debuff_deck, before)
         self.assertIsNone(g.current_debuff)
@@ -148,17 +188,18 @@ class TestDebuffV06(unittest.TestCase):
         g = make_v06()
         g.cv['H'] = ['MH-02']
         g.strat.debuff_choice = {'cancel': 'MH-02'}
-        g.pool = Counter({'BL': 3})
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertIn('MH-02', g.used_once_cards)
         g.turn += 1
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertIsNotNone(g.current_debuff)
 
         h = make_v06()
         h.pre_debuff_cancel = 'ME-02'
         before = list(h.debuff_deck)
-        h.pool = Counter({'BL': 3})
+        h.bad_luck_accumulator = 5
         h._debuff_check()
         self.assertEqual(h.debuff_deck, before)
         self.assertIsNone(h.current_debuff)
@@ -167,7 +208,8 @@ class TestDebuffV06(unittest.TestCase):
         g = make_v06()
         g.cv['H'] = ['OH-01']
         g.strat.debuff_choice = {'shorten': 'OH-01'}
-        g.pool = Counter({'BL': 3, 'H': 1})
+        g.bad_luck_accumulator = 5
+        g.pool = Counter({'H': 1})
         g._debuff_check()
         self.assertEqual(g.debuff_turns_remaining, 2)
         self.assertEqual(g.pool['H'], 0)
@@ -183,10 +225,11 @@ class TestDebuffV06(unittest.TestCase):
     def test_d08_virtual_bl_triggers_but_cannot_pay(self):
         g = make_v06()
         activate_debuff(g, 'D08')
-        g.pool = Counter({'BL': 2})
+        g.bad_luck_accumulator = 4
         g._debuff_check()
         self.assertIsNotNone(g.current_debuff)
         self.assertEqual(g.stats.run['d08_trigger_mattered'], 1)
+        self.assertEqual(g.bad_luck_accumulator, 0)
 
         h = make_v06()
         activate_debuff(h, 'D08')
@@ -196,14 +239,25 @@ class TestDebuffV06(unittest.TestCase):
     def test_f11_virtual_bl_can_trigger_debuff_but_cannot_pay(self):
         g = make_v06()
         activate_fate(g, 'F11')
-        g.pool = Counter({'BL': 2})
+        g.bad_luck_accumulator = 4
         g._debuff_check()
         self.assertIsNotNone(g.current_debuff)
+        self.assertEqual(g.bad_luck_accumulator, 0)
 
         h = make_v06()
         activate_fate(h, 'F11')
         h.pool = Counter()
         self.assertIsNone(h._joint_plan((), 'F07'))
+
+    def test_virtual_bl_does_not_enter_accumulator_below_threshold(self):
+        g = make_v06()
+        activate_debuff(g, 'D08')
+        g.bad_luck_accumulator = 3
+        status = g.debuff_trigger_status()
+        self.assertEqual(status['virtual_bl'], 1)
+        self.assertFalse(status['triggered'])
+        g._debuff_check()
+        self.assertEqual(g.bad_luck_accumulator, 3)
 
 
 class TestFateV06(unittest.TestCase):
@@ -256,16 +310,20 @@ class TestFateV06(unittest.TestCase):
         self.assertIn((('YH-01', 'YK-03'), 'F01'), plans)
         self.assertFalse(any(len(action[0]) > 2 for action in plans))
 
-    def test_fate_bl_payment_is_removed_before_window_debuff_check(self):
+    def test_fate_bl_payment_does_not_reduce_recorded_bad_luck(self):
         g = make_v06()
         g.turn = 3
         g.fate_market = ['F07']
-        g.pool = Counter({'BL': 3})
+        g.dice = ['BL'] * 5
+        g.pool = Counter({'BL': 5})
+        g.record_final_bad_luck()
         plan = g._joint_plan((), 'F07')
         g.execute_joint(((), 'F07'), plan)
         g._debuff_check()
-        self.assertIsNone(g.current_debuff)
-        self.assertEqual(g.pool['BL'], 2)
+        self.assertIsNotNone(g.current_debuff)
+        self.assertEqual(g.pool['BL'], 4)
+        self.assertEqual(g.bad_luck_accumulator, 0)
+
     def test_initial_market_has_two_unique_fates(self):
         g = make_v06()
         self.assertEqual(g.fate_market, ['F01', 'F02'])
@@ -303,17 +361,19 @@ class TestFateV06(unittest.TestCase):
         g.pool = Counter({'R': 1, 'GL': 1})
         self.assertIsNone(g._joint_plan(('YR-03',), 'F01'))
 
-    def test_bl_spent_on_fate_is_removed_before_debuff_check(self):
+    def test_fate_payment_prevented_debuff_stat_stops_growing(self):
         g = make_v06()
         g.turn = 3
         g.fate_market = ['F07']
-        g.pool = Counter({'BL': 3})
+        g.dice = ['BL'] * 5
+        g.pool = Counter({'BL': 5})
+        g.record_final_bad_luck()
         plan = g._joint_plan((), 'F07')
         g.execute_joint(((), 'F07'), plan)
         g._debuff_check()
-        self.assertIsNone(g.current_debuff)
-        self.assertEqual(g.pool['BL'], 2)
-        self.assertEqual(g.stats.run['fate_payment_prevented_debuff'], 1)
+        self.assertIsNotNone(g.current_debuff)
+        self.assertEqual(g.pool['BL'], 4)
+        self.assertEqual(g.stats.run['fate_payment_prevented_debuff'], 0)
 
     def test_decline_discards_left_and_acquire_shifts_then_fills(self):
         g = make_v06()
@@ -881,7 +941,7 @@ class TestGoalsAndRegressionV06(unittest.TestCase):
         self.assertEqual(g.event_acquired_count(), 1)
         g.hand = ['C06']
         g.strat.debuff_choice = {'cancel': 'C06'}
-        g.pool = Counter({'BL': 3})
+        g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertEqual(g.debuff_experienced_count(), 0)
         self.assertEqual(scoring.full_score(g.cv, g.goals, **g.scoring_counts())['lg_scores'][0], 0)

@@ -652,6 +652,7 @@ class GameSession:
         return copy.deepcopy(plans)
 
     def _enter_purchase_ready(self):
+        self.game.record_final_bad_luck()
         self._purchase_ready = True
         self._purchase_plan_cache = None
         self._purchase_target = None
@@ -1270,7 +1271,7 @@ class GameSession:
                 'kind': kind,
                 'life_goals': self._life_goals_summary(),
                 'childhood_cards': self._childhood_summary(),
-                            'remaining_bad_luck': self.game.pool.get('BL', 0),
+                'remaining_bad_luck': self.game.bad_luck_accumulator,
                 'candidates': [self._presented_card(o['cid'])
                                for o in options],
                 'legal_actions': ([{'choice': 'skip'}]

@@ -497,7 +497,8 @@ class TestRuntimePurchasePlanGeneration(unittest.TestCase):
 
 
 class TestRuntimePurchaseExecution(unittest.TestCase):
-    def ready_session(self, dice, market=None, extra_hand=(), stable=None):
+    def ready_session(self, dice, market=None, extra_hand=(), stable=None,
+                      prior_bad_luck=0):
         session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
         first = session.current_decision()
         second = session.submit_action(first['decision_id'],
@@ -514,6 +515,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
                 session.game.hand.append(cid)
         if stable:
             session.game.stable_pool = Counter(stable)
+        session.game.bad_luck_accumulator = prior_bad_luck
         ready = session.submit_action(
             post['decision_id'], {'choice': 'proceed_to_purchase'})['decision']
         self.assertEqual(ready['kind'], 'purchase_ready')
@@ -769,12 +771,14 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_cv_stays_pending_until_debuff_protection_is_resolved(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1})
+            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
+        self.assertEqual(session.game.bad_luck_accumulator, 5)
         plan = self.find_plan(session, ('YH-01',))
         result = self.submit_plan(session, ready, plan)
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'],
                          'debuff_protection_decision')
+        self.assertEqual(result['decision']['remaining_bad_luck'], 5)
         self.assertEqual(session.game.pending_new, ['YH-01'])
         self.assertIsNone(session.game.active('H'))
         self.assertIsNone(session.game.current_debuff)
@@ -788,9 +792,10 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertIsNone(session.game.current_debuff)
         self.assertEqual(session.game.stats.game['debuff_triggers'], 0)
 
-    def test_three_or_more_bad_luck_without_c06_draws_once_next_turn_active(self):
+    def test_five_accumulated_bad_luck_without_c06_draws_once_next_turn_active(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'], stable={'BL': 2})
+            ['H', 'H', 'BL', 'BL'], ['YH-01'], stable={'BL': 2},
+            prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         result = self.submit_plan(session, ready, plan)
         self.assertEqual(result['decision']['kind'], 'placement_decision')
@@ -804,7 +809,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_c06_use_cancels_without_draw_or_adversity_history(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1})
+            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         deck_before = list(session.game.debuff_deck)
@@ -820,7 +825,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_c06_skip_keeps_card_and_draws_debuff_before_placement(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1})
+            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         result = session.submit_action(protection['decision_id'],
@@ -834,7 +839,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_debuff_resolution_precedes_forced_work_placement(self):
         session, ready = self.ready_session(
             ['K', 'K', 'BL', 'BL'], ['YW-01'],
-            extra_hand=['C06'], stable={'BL': 1})
+            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YW-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         self.assertEqual(protection['kind'], 'debuff_protection_decision')
@@ -848,7 +853,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_debuff_result_reports_c06_as_cancel_source(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1})
+            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         done = session.submit_action(protection['decision_id'],
@@ -866,7 +871,8 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_debuff_result_reports_mh02_as_cancel_source(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'], stable={'BL': 1})
+            ['H', 'H', 'BL', 'BL'], ['YH-01'], stable={'BL': 1},
+            prior_bad_luck=3)
         session.game.cv['H'] = ['MH-02']
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
@@ -887,7 +893,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_debuff_result_has_no_cancel_source_when_skipped(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1})
+            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         done = session.submit_action(protection['decision_id'],
@@ -905,7 +911,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_multiple_placements_follow_debuff_and_protection_actions_are_safe(self):
         session, ready = self.ready_session(
             ['H', 'H', 'H', 'K'], ['YH-01', 'YH-02'],
-            extra_hand=['C06'], stable={'BL': 3})
+            extra_hand=['C06'], stable={'BL': 3}, prior_bad_luck=5)
         plan = self.find_plan(session, ('YH-01', 'YH-02'))
         protection = self.submit_plan(session, ready, plan)['decision']
         before = self.snapshot(session)
@@ -1202,7 +1208,8 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_runtime_new_debuff_is_reported_but_not_advanced_during_draw_turn(self):
         session, ready = self.ready_session(
-            ['H', 'K', 'BL', 'BL'], ['YH-01'], stable={'BL': 1})
+            ['H', 'K', 'BL', 'BL'], ['YH-01'], stable={'BL': 1},
+            prior_bad_luck=3)
         plan = self.find_plan(session, ())
         result = self.submit_plan(session, ready, plan)
         self.assertEqual(result['decision']['kind'], 'post_roll_decision')
@@ -1316,7 +1323,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertTrue(result['ok'])
         self.assertNotIn('ME-02', session.game.hand)
         self.assertEqual(session.game.pre_debuff_cancel, 'ME-02')
-        session.game.pool = Counter({'BL': 3})
+        session.game.bad_luck_accumulator = 5
         self.assertEqual(session.game.resolve_runtime_debuff(), 'pre_cancelled')
         self.assertIsNone(session.game.current_debuff)
 
@@ -2199,6 +2206,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
         session, post = self.drafted_session(
             ['H', 'H', 'BL', 'BL'], market=['YH-01'], extra_hand=['C06'])
         session.game.stable_pool = Counter({'BL': 1})
+        session.game.bad_luck_accumulator = 3
         ready = session.submit_action(
             post['decision_id'], {'choice': 'proceed_to_purchase'})['decision']
         plan = next(p for p in session._purchase_plan_cache
@@ -2725,7 +2733,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
     """MH-02「年度体检」接入 Runtime 的 Debuff 保护定向回归。"""
 
     def make_engine_game(self, hand=(), stacks=(), deck=('D01', 'D02'),
-                         pool=None):
+                         pool=None, bad_luck=0):
         game = Game(CONFIGS['V06'], Balanced, random.Random(3))
         game.childhood_complete = True
         game.turn = 2
@@ -2736,9 +2744,11 @@ class TestMH02DebuffProtection(unittest.TestCase):
         game.debuff_deck = list(deck)
         if pool is not None:
             game.pool = Counter(pool)
+        game.bad_luck_accumulator = bad_luck
         return game
 
-    def ready_session(self, dice, market=None, extra_hand=(), stable=None):
+    def ready_session(self, dice, market=None, extra_hand=(), stable=None,
+                      prior_bad_luck=0):
         session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
         first = session.current_decision()
         second = session.submit_action(first['decision_id'],
@@ -2755,6 +2765,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
                 session.game.hand.append(cid)
         if stable:
             session.game.stable_pool = Counter(stable)
+        session.game.bad_luck_accumulator = prior_bad_luck
         ready = session.submit_action(
             post['decision_id'], {'choice': 'proceed_to_purchase'})['decision']
         self.assertEqual(ready['kind'], 'purchase_ready')
@@ -2782,10 +2793,10 @@ class TestMH02DebuffProtection(unittest.TestCase):
         return result
 
     def triggered_session(self, extra_hand=(), stable=None, deck=None):
-        """真实购买流触发 Debuff（stable BL1 + 骰 BL2），MH-02 置于 H 堆顶。"""
+        """真实购买流触发 Debuff（既有累计 3 + 最终骰面 BL2）。"""
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=extra_hand, stable=stable)
+            extra_hand=extra_hand, stable=stable, prior_bad_luck=3)
         session.game.cv['H'] = ['MH-02']
         if deck is not None:
             session.game.debuff_deck = list(deck)
@@ -2849,7 +2860,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
         game = self.make_engine_game(hand=['C06'],
                                      stacks=[('H', ['MH-02'])],
                                      deck=['D01', 'D02'],
-                                     pool={'BL': 3})
+                                     bad_luck=5)
         outcome = game.resolve_runtime_debuff(cancel_cid='MH-02')
         self.assertEqual(outcome, 'cancelled')
         self.assertIsNone(game.current_debuff)
@@ -2857,11 +2868,12 @@ class TestMH02DebuffProtection(unittest.TestCase):
         self.assertEqual(game.debuff_deck, ['D01', 'D02'])
         self.assertEqual(game.scoring_counts()['debuff_count'], 0)
         self.assertIn('MH-02', game.used_once_cards)
+        self.assertEqual(game.bad_luck_accumulator, 0)
 
     def test_deck_empty_skips_protection_without_consumption(self):
         game = self.make_engine_game(hand=['C06'],
                                      stacks=[('H', ['MH-02'])],
-                                     deck=[], pool={'BL': 3})
+                                     deck=[], bad_luck=5)
         self.assertIsNone(game.resolve_runtime_debuff(cancel_cid='C06'))
         self.assertIn('C06', game.hand)
         self.assertNotIn('MH-02', game.used_once_cards)
@@ -2869,9 +2881,10 @@ class TestMH02DebuffProtection(unittest.TestCase):
         self.assertIn('C06', game.hand)
         self.assertIsNone(game.current_debuff)
         self.assertEqual(game.stats.run['debuff_empty_triggers'], 1)
+        self.assertEqual(game.bad_luck_accumulator, 0)
 
     def test_no_protection_draws_normally(self):
-        game = self.make_engine_game(hand=[], deck=['D07'], pool={'BL': 3})
+        game = self.make_engine_game(hand=[], deck=['D07'], bad_luck=5)
         self.assertEqual(game.resolve_runtime_debuff(), 'drawn')
         self.assertEqual(game.current_debuff, 'D07')
         self.assertEqual(game.debuff_active_from_turn, game.turn + 1)
@@ -2879,7 +2892,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
 
     def test_invalid_cancel_cid_is_rejected_before_trigger_record(self):
         game = self.make_engine_game(hand=['C06'], deck=['D01'],
-                                     pool={'BL': 3})
+                                     bad_luck=5)
         triggers_before = game.stats.game['debuff_triggers']
         self.assertIsNone(game.resolve_runtime_debuff(cancel_cid='C99'))
         self.assertEqual(game.stats.game['debuff_triggers'], triggers_before)
@@ -2890,7 +2903,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
 
     def test_simulator_debuff_check_prefers_active_protection(self):
         game = self.make_engine_game(stacks=[('H', ['MH-02'])],
-                                     deck=['D01'], pool={'BL': 3})
+                                     deck=['D01'], bad_luck=5)
         game._debuff_check()
         # heuristic 策略层偏好 active 保护；引擎只按选择消耗
         self.assertIn('MH-02', game.used_once_cards)
@@ -2901,7 +2914,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
     def test_simulator_debuff_check_skips_protection_on_empty_deck(self):
         game = self.make_engine_game(hand=['C06'],
                                      stacks=[('H', ['MH-02'])],
-                                     deck=[], pool={'BL': 3})
+                                     deck=[], bad_luck=5)
         game._debuff_check()
         self.assertEqual(game.used_once_cards, set())
         self.assertIn('C06', game.hand)
@@ -3015,7 +3028,8 @@ class TestMH02DebuffProtection(unittest.TestCase):
 class TestOH01DebuffShorten(unittest.TestCase):
     """OH-01「长期健康管理」缩短 Debuff 接入 Runtime 的定向回归。"""
 
-    def make_engine_game(self, hand=(), stacks=(), pool=None, deck=('D01',)):
+    def make_engine_game(self, hand=(), stacks=(), pool=None, deck=('D01',),
+                         bad_luck=0):
         game = Game(CONFIGS['V06'], Balanced, random.Random(3))
         game.childhood_complete = True
         game.turn = 2
@@ -3026,10 +3040,11 @@ class TestOH01DebuffShorten(unittest.TestCase):
         game.debuff_deck = list(deck)
         if pool is not None:
             game.pool = Counter(pool)
+        game.bad_luck_accumulator = bad_luck
         return game
 
     def shorten_session(self, stable=None, market=('YH-01',)):
-        """真实购买流：买 YH-01 后触发 Debuff（BL3）并抽牌，OH-01 已 active。"""
+        """真实购买流：既有累计 3 + 最终骰面 BL2 触发，OH-01 已 active。"""
         session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
         first = session.current_decision()
         second = session.submit_action(first['decision_id'],
@@ -3043,6 +3058,7 @@ class TestOH01DebuffShorten(unittest.TestCase):
         session.game.cv['H'] = ['OH-01']
         if stable is not None:
             session.game.stable_pool = Counter(stable)
+        session.game.bad_luck_accumulator = 3
         ready = session.submit_action(
             post['decision_id'], {'choice': 'proceed_to_purchase'})['decision']
         self.assertEqual(ready['kind'], 'purchase_ready')
@@ -3124,7 +3140,7 @@ class TestOH01DebuffShorten(unittest.TestCase):
 
     def test_simulator_debuff_check_applies_shorten(self):
         game = self.make_engine_game(stacks=[('H', ['OH-01'])],
-                                     pool={'H': 2, 'BL': 3})
+                                     pool={'H': 2}, bad_luck=5)
         game._debuff_check()
         self.assertEqual(game.current_debuff, 'D01')
         self.assertEqual(game.debuff_turns_remaining, 2)
@@ -3134,7 +3150,7 @@ class TestOH01DebuffShorten(unittest.TestCase):
 
     def test_simulator_debuff_check_skips_without_h(self):
         game = self.make_engine_game(stacks=[('H', ['OH-01'])],
-                                     pool={'BL': 3})
+                                     bad_luck=5)
         game._debuff_check()
         self.assertEqual(game.current_debuff, 'D01')
         self.assertEqual(game.debuff_turns_remaining, 3)
@@ -3144,7 +3160,7 @@ class TestOH01DebuffShorten(unittest.TestCase):
     def test_cancel_path_excludes_shorten_window(self):
         game = self.make_engine_game(hand=['C06'],
                                      stacks=[('H', ['OH-01'])],
-                                     pool={'H': 2, 'BL': 3})
+                                     pool={'H': 2}, bad_luck=5)
         game._debuff_check()
         # 取消与缩短按触发互斥：取消后不抽牌、不支付、不缩短
         self.assertIsNone(game.current_debuff)
@@ -3861,7 +3877,7 @@ class TestSpectatorRecentEvents(unittest.TestCase):
         game.childhood_complete = True
         game.turn = 2
         game.pre_roll_open = False
-        game.pool = Counter({'BL': 3})
+        game.bad_luck_accumulator = 5
         game.debuff_deck = ['D01', 'D02']
 
         self.assertEqual(session._resolve_runtime_debuff(), 'drawn')
@@ -3870,6 +3886,7 @@ class TestSpectatorRecentEvents(unittest.TestCase):
         self.assertEqual(first['details']['card_id'], 'D01')
         self.assertNotIn('replaced_card_id', first['details'])
 
+        game.bad_luck_accumulator = 5
         self.assertEqual(session._resolve_runtime_debuff(), 'drawn')
         second = session._recent_events[-1]
         self.assertEqual(second['type'], 'debuff_started')

@@ -220,6 +220,7 @@ def discounted_cost(cost, sym):
 
 class Game:
     MAX_TURNS = 100
+    DEBUFF_BAD_LUCK_THRESHOLD = 5
 
     def __init__(self, cfg, strat_factory, rng, stats=None, shuffle=True,
                  forced_goals=None, defer_childhood=False):
@@ -263,6 +264,8 @@ class Game:
         self.debuff_history = []
         self.debuff_durations = []
         self.used_once_cards = set()
+        self.bad_luck_accumulator = 0
+        self.bad_luck_recorded_turn = None
 
         # v0.6 Fate：独立市场；取得牌永久留在 fate_stack。
         self.fate_deck = [c['id'] for c in FATES] if cfg.fate else []
@@ -1988,16 +1991,26 @@ class Game:
         self.debuff_active_turns = 0
 
     def debuff_trigger_status(self):
-        """返回当前支付资源是否达到 Debuff 阈值；不修改状态。"""
+        """返回跨回合厄运累计是否达到 Debuff 阈值；不修改状态。"""
         if not self.cfg.debuff:
             return {'triggered': False, 'real_bl': 0, 'virtual_bl': 0,
                     'virtual_sources': []}
-        real_bl = self.pool.get('BL', 0)
+        real_bl = self.bad_luck_accumulator
         virtual_sources = [c for c in self._effect_cards() if c.get('virtual_bl')]
         virtual_bl = sum(c['virtual_bl'] for c in virtual_sources)
         final_bl = real_bl + virtual_bl
-        return {'triggered': final_bl >= 3, 'real_bl': real_bl,
+        return {'triggered': final_bl >= self.DEBUFF_BAD_LUCK_THRESHOLD,
+                'real_bl': real_bl,
                 'virtual_bl': virtual_bl, 'virtual_sources': virtual_sources}
+
+    def record_final_bad_luck(self):
+        """每回合只记录一次最终真实骰面中的 BL，并返回本次新增数量。"""
+        if not self.cfg.debuff or self.bad_luck_recorded_turn == self.turn:
+            return 0
+        real_bl = self.dice.count('BL')
+        self.bad_luck_accumulator += real_bl
+        self.bad_luck_recorded_turn = self.turn
+        return real_bl
 
     def _record_debuff_trigger(self, status):
         self.stats.run['debuff_triggers'] += 1
@@ -2005,14 +2018,17 @@ class Game:
         for source in status['virtual_sources']:
             if (source['id'] == 'D08'
                     and status['real_bl'] + status['virtual_bl']
-                    - source['virtual_bl'] < 3):
+                    - source['virtual_bl'] < self.DEBUFF_BAD_LUCK_THRESHOLD):
                 self.stats.run['d08_trigger_mattered'] += 1
                 self.stats.debuff('D08')['ability']['virtual_bl_mattered'] += 1
 
-    def _record_below_debuff_threshold(self, status):
-        if (status['real_bl'] + self.real_bl_spent_on_fate
-                + status['virtual_bl'] >= 3):
-            self.stats.run['fate_payment_prevented_debuff'] += 1
+    def _consume_debuff_trigger(self, status):
+        """结算一次已确认触发：真实累计清零并记录统计。"""
+        if not status['triggered']:
+            return False
+        self.bad_luck_accumulator = 0
+        self._record_debuff_trigger(status)
+        return True
 
     def _draw_next_debuff(self):
         """抽取下一张唯一 Debuff；新牌从下一完整回合开始生效。"""
@@ -2095,12 +2111,11 @@ class Game:
         """
         status = self.debuff_trigger_status()
         if not status['triggered']:
-            self._record_below_debuff_threshold(status)
             return 'no_trigger'
         if cancel_cid is not None and cancel_cid not in [
                 o['cid'] for o in self.debuff_cancel_options()]:
             return None
-        self._record_debuff_trigger(status)
+        self._consume_debuff_trigger(status)
         if self.pre_debuff_cancel:
             self.stats.run['debuff_cancelled'] += 1
             self.stats.game['debuff_cancelled'] += 1
@@ -2115,10 +2130,9 @@ class Game:
     def _debuff_check(self):
         status = self.debuff_trigger_status()
         if not status['triggered']:
-            self._record_below_debuff_threshold(status)
             return
 
-        self._record_debuff_trigger(status)
+        self._consume_debuff_trigger(status)
 
         # 事前保险已在掷骰前消耗；达到阈值时优先取消，且不抽牌。
         if self.pre_debuff_cancel:
@@ -2663,6 +2677,7 @@ class Game:
                 self._offer_bl_convert()
         for f in self.dice:
             st.run['dice_faces'][f] += 1
+        self.record_final_bad_luck()
 
         # ---- 4. 锁骰后：资源池 + YK-05 转换 + 2→1 兜底
         self.dice_gl_flexible = (
@@ -2730,7 +2745,7 @@ class Game:
             else:
                 st.game['zero_no_legal'] += 1
 
-        # ---- 6. Fate 支付后的最终厄运值 → 每回合至多触发 1 张 Debuff
+        # ---- 6. 以锁定骰面累计的厄运值 → 每回合至多触发 1 张 Debuff
         self._debuff_check()
 
         # ---- 7. active 处理（堆叠）
