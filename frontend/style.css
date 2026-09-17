@@ -88,6 +88,9 @@
 .section-title span { font-size:clamp(10px,1.2cqw,12px); }
 .card-type { font-size:clamp(9px,1.1cqw,12px); }
 .card-effect { font-size:clamp(11px,1.4cqw,14px); line-height:1.4; }
+.market-card:not(.detail-card) { display:grid; grid-template-rows:auto auto minmax(0,1fr); padding-bottom:clamp(50px,4.6cqw,54px); }
+.market-card:not(.detail-card) h3 { display:-webkit-box; margin-top:clamp(8px,1.4cqw,16px); margin-bottom:0; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.market-card:not(.detail-card) .card-effect { min-height:0; }
 .game-card footer { font-size:clamp(10px,1.2cqw,12px); }
 .text-section li { font-size:clamp(11px,1.35cqw,14px); line-height:1.4; }
 .text-section li span { font-size:clamp(10px,1.25cqw,13px); }
