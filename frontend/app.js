@@ -106,7 +106,15 @@ const renderDemo = () => renderDesk(buildDemoDesk());
 const snapshotToDesk = (snapshot) => {
   const stage = STAGE_LABELS[snapshot.stage] || snapshot.stage || '未开始';
   const frozen = new Set(snapshot.dice?.frozen_indices || []);
-  const resume = CV_TYPES.map(([type, label]) => { const slot = snapshot.cv?.[type] || { stack: [], top_card_id: null }; const top = slot.stack.find((card) => card.card_id === slot.top_card_id); return top ? { ...top, type: label, color: cardMeta(label).color, held: slot.stack.map((card) => ({ ...card, is_top: card.card_id === slot.top_card_id })) } : { type: label, color: cardMeta(label).color, name: '暂无', effect_summary: '当前没有持有履历', held: [] }; });
+  const resume = CV_TYPES.map(([type, label]) => {
+    const slot = snapshot.cv?.[type] || { stack: [], top_card_id: null };
+    const top = slot.stack.find((card) => card.card_id === slot.top_card_id);
+    if (!top) return { type: label, color: cardMeta(label).color, name: '暂无', effect_summary: '当前没有持有履历', held: [] };
+    const held = slot.stack.map((card) => ({ ...card, is_top: card.card_id === slot.top_card_id }));
+    const topIndex = held.findIndex((card) => card.card_id === slot.top_card_id);
+    const orderedHeld = [held[topIndex], ...held.slice(0, topIndex), ...held.slice(topIndex + 1)];
+    return { ...top, type: label, color: cardMeta(label).color, held: orderedHeld };
+  });
   return { phase: stage, round: snapshot.game_over ? snapshot.completed_turn : snapshot.current_turn, connection: snapshot.game_over || snapshot.status === 'game_over' ? '已结束' : '已连接', playerIdentity: snapshot.player_identity || DEFAULT_PLAYER_IDENTITY, opportunity: snapshot.opportunity_market || [], fate: snapshot.fate_market?.cards || [], goals: (snapshot.life_goals || []).map((goal) => [goal.name, goal.scoring_text]), events: snapshot.event_hand || [], debuff: snapshot.current_debuff ? { name: snapshot.current_debuff.name, turns: `剩余 ${snapshot.current_debuff.turns_remaining} 回合`, effect: snapshot.current_debuff.effect_summary } : null, logs: (snapshot.recent_events || []).slice(-LOG_DISPLAY_LIMIT).reverse().map((event) => event.text), dice: (snapshot.dice?.values || []).map((value, index) => ({ value, frozen: frozen.has(index) })), maxDiceCount: snapshot.dice?.max_dice_count || DICE_SLOT_COUNT, rollRevision: snapshot.dice?.roll_revision, resume };
 };
 
