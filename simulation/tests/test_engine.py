@@ -12,7 +12,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ailife.cards import CARDS
+from ailife.cards import CARDS, LG_NAMES
 from ailife.engine import CONFIGS, Game, Config, solve_cost, discounted_cost
 from ailife.strategies import BaseStrategy, Balanced, GoalPriority, STRATEGIES
 from ailife import scoring
@@ -85,13 +85,21 @@ class TestScoring(unittest.TestCase):
         self.assertEqual(scoring.lg_score(1, counts, pvp, []), 2)
         self.assertEqual(scoring.lg_score(4, counts, pvp, []), 4)
         self.assertEqual(scoring.lg_score(5, counts, pvp, []), 2)   # 6//3
-        self.assertEqual(scoring.lg_score(6, counts, pvp, []), 4)   # 2*min(2,2)
+        self.assertEqual(scoring.lg_score(6, counts, pvp, []), 6)   # 3*min(2,2,2)
         self.assertEqual(scoring.lg_score(9, counts, pvp, []), 8)   # 4*min(2,2,2)
         self.assertEqual(scoring.lg_score(10, counts, pvp, []), 10) # 五类各2
         self.assertEqual(scoring.lg_score(11, counts, pvp, []), 2)
         self.assertEqual(scoring.lg_score(12, counts, pvp, []), 4)
+        self.assertEqual(scoring.lg_score(15, counts, pvp, []), 6)  # 3*min(2,2,2)
         self.assertEqual(scoring.lg_score(13, counts, pvp, []), 0)  # provides=[]
         self.assertEqual(scoring.lg_score(16, counts, pvp, []), 0)
+
+    def test_life_goal_names_and_lg10_logic(self):
+        self.assertEqual(LG_NAMES[6], '稳步积累')
+        self.assertEqual(LG_NAMES[10], '人生广度')
+        self.assertEqual(LG_NAMES[15], '协作成长')
+        counts = {'H': 2, 'K': 2, 'R': 1, 'W': 2, 'P': 2}
+        self.assertEqual(scoring.lg_score(10, counts, 0, []), 8)
 
     def test_designation_lg13_lg16(self):
         cv = {c: [] for c in 'HKRWP'}
@@ -434,15 +442,17 @@ class TestTurnCloseout(unittest.TestCase):
 class TestStacking(unittest.TestCase):
     def test_bury_keeps_active(self):
         g = make_game()
-        g.cv['H'] = ['YH-01']
-        g.cv['H'].insert(0, 'YH-03')  # 压入堆下
-        self.assertEqual(g.active('H'), 'YH-01')
+        g.cv['H'] = ['YH-01', 'YH-02']  # YH-01 压入堆下
+        self.assertEqual(g.active('H'), 'YH-02')
+        self.assertEqual(scoring.active_provides(g.cv, {}), [])
 
     def test_loss_surfaces_next(self):
         g = make_game()
         g.cv['H'] = ['YH-03', 'YH-01']
         g.lose_active('YH-01')
         self.assertEqual(g.active('H'), 'YH-03')
+        self.assertEqual(scoring.active_provides(g.cv, {}),
+                         [('H', 1), ('R', 1)])
 
     def test_wp_force_top(self):
         """W/P 新牌必须置顶（play_turn 的放置逻辑）。"""

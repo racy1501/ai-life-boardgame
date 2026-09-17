@@ -2388,7 +2388,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
             'fate_count': 3, 'debuff_count': 1, 'event_count': 2,
         }
         self.assertEqual([lg_score(lg, **context) for lg in range(1, 19)],
-                         [3, 2, 1, 4, 2, 4, 4, 4, 4, 8, 3, 2, 6, 4, 2, 2, 3, 4])
+                         [3, 2, 1, 4, 2, 6, 4, 4, 4, 8, 3, 2, 6, 4, 3, 2, 3, 4])
         zero = {
             'counts': {'H': 0, 'K': 0, 'R': 0, 'W': 0, 'P': 0}, 'pvp': 0,
             'provides': [], 'fate_count': 1, 'debuff_count': 0,
@@ -4152,6 +4152,9 @@ class TestCardCatalog(unittest.TestCase):
                 self.assertIsNotNone(value)
 
     def test_details_match_respective_type_sets(self):
+        self.assertEqual(self.by_id['YH-01']['name'], '邻里健康互助')
+        self.assertEqual(self.by_id['YH-01']['cost'], {'H': 1, 'R': 1})
+        self.assertEqual(CARDS['YH-01']['provide'], [('H', 1), ('R', 1)])
         self.assertEqual(set(self.by_id['YH-01']['details']), {'provide'})
         self.assertEqual(set(self.by_id['YK-05']['details']),
                          {'provide', 'convert_turn'})
