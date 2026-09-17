@@ -2094,6 +2094,38 @@ class TestRuntimeLongTermView(unittest.TestCase):
         self.assertNotIn('childhood_draft_result', done)
         self.assertEqual([g['id'] for g in done['life_goals']], [1, 2])
 
+    def test_spectator_snapshot_keeps_childhood_history_and_draft_events(self):
+        session, _ = self.drafted_session(['H', 'K', 'R', 'M'])
+        snapshot = session.spectator_snapshot()
+        self.assertEqual([item['card_id'] for item in snapshot['childhood_cards']],
+                         session.game.childhood_kept)
+        draft_events = [event for event in session._recent_events
+                        if event['type'].startswith('childhood_')]
+        self.assertEqual([event['type'] for event in draft_events],
+                         ['childhood_pick', 'childhood_pick',
+                          'childhood_draft_completed'])
+        self.assertEqual(draft_events[-1]['details']['card_ids'],
+                         session.game.childhood_kept)
+
+    def test_spectator_childhood_history_marks_consumed_card_used(self):
+        session, post = self.drafted_session(
+            ['H', 'H', 'BL', 'BL'], market=['YH-01', 'YK-01'],
+            extra_hand=['C07'])
+        ready = session.submit_action(
+            post['decision_id'], {'choice': 'proceed_to_purchase'})['decision']
+        plan = next(p for p in session._purchase_plan_cache
+                    if p['card_ids'] == ['YH-01'] and p['discounts_used'])
+        stage = session.submit_action(ready['decision_id'], {
+            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})
+        result = session.submit_action(stage['decision']['decision_id'],
+                                       {'plan_id': plan['plan_id']})
+        final = session.submit_action(result['decision']['decision_id'],
+                                      {'placement': 'top'})
+        history = {item['card_id']: item['status'] for item in
+                   session.spectator_snapshot()['childhood_cards']}
+        self.assertEqual(history['C07'], 'used')
+        self.assertEqual(set(history), set(session.game.childhood_kept))
+
     def test_childhood_card_status_tracks_consumption(self):
         session, post = self.drafted_session(
             ['H', 'H', 'BL', 'BL'], market=['YH-01', 'YK-01'],

@@ -887,6 +887,22 @@ class GameSession:
             items.append(item)
         return items
 
+    def _childhood_history_summary(self):
+        """完整童年 Draft 结果；状态由 Game 当前正式字段纯派生。"""
+        items = []
+        for cid in self.game.childhood_kept:
+            card = CARDS[cid]
+            if card.get('abebe'):
+                status = 'used' if self.game.abebe_used else 'held'
+            else:
+                status = 'available' if cid in self.game.hand else 'used'
+            item = {'card_id': cid, 'name': card['name'], 'status': status}
+            effect = _SPECIAL_NOTES.get(cid) or _card_effect_summary(card)
+            if effect:
+                item['effect_summary'] = effect
+            items.append(item)
+        return items
+
     def _debuff_summary(self):
         if not self.game.current_debuff:
             return None
@@ -961,6 +977,7 @@ class GameSession:
             'event_hand': [
                 self._spectator_card_summary(cid) for cid in game.hand
                 if CARDS[cid]['type'] == 'E'],
+            'childhood_cards': self._childhood_history_summary(),
             'current_debuff': current_debuff,
             'dice': {
                 'values': dice,
@@ -1454,6 +1471,17 @@ class GameSession:
                 return {'ok': False, 'error': 'illegal_action',
                         'decision': self.current_decision()}
             accepted = {'card_id': card_id}
+            self._append_recent_event(
+                'childhood_pick', '童年 Draft 第%d次选择「%s」' % (
+                    current['draft_round'], CARDS[card_id]['name']),
+                {'draft_round': current['draft_round'], 'card_id': card_id})
+            if self.game.childhood_complete:
+                kept = list(self.game.childhood_kept)
+                self._append_recent_event(
+                    'childhood_draft_completed',
+                    '童年 Draft 完成：%s' % '、'.join(
+                        CARDS[cid]['name'] for cid in kept),
+                    {'card_ids': kept})
         elif current['kind'] == 'pre_roll_c11':
             if (not isinstance(action, dict) or set(action) != {'choice'}
                     or action not in current['legal_actions']):

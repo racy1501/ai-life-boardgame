@@ -87,6 +87,7 @@ const renderPlayerIdentity = (identity, round) => {
 let displayedResume = [];
 let displayedGoals = [];
 let displayedEvents = [];
+let displayedChildhood = [];
 const renderGoalList = (goals) => { displayedGoals = goals; element('#goals-list').innerHTML = goals.map((goal, index) => `<li class="goal-item"><b>${escapeHtml(goal[0])}</b><button class="more-button goal-more" data-index="${index}" type="button">详情 <span>→</span></button></li>`).join('') || '<li class="goal-item"><b>暂无</b></li>'; };
 const renderEventList = (events) => { displayedEvents = events; element('#events-list').innerHTML = events.length ? events.map((card, index) => `<li class="event-item"><b>${escapeHtml(card.name)}</b><button class="more-button event-more" data-index="${index}" type="button">详情 <span>→</span></button></li>`).join('') : '<li class="event-item"><b>暂无</b></li>'; };
 const renderDesk = (game, { renderDicePool = true } = {}) => {
@@ -101,6 +102,8 @@ const renderDesk = (game, { renderDicePool = true } = {}) => {
   renderTextList('#log-list', visibleLogs.map((text) => [text, '']), '暂无'); if (renderDicePool) renderDice(game.dice, game.maxDiceCount); renderPlayerIdentity(game.playerIdentity, game.round);
   ensureDiceRuleHint();
   displayedResume = game.resume; list('#resume-cards', displayedResume, (card, index) => `<div class="resume-card-wrap">${renderCard(card, { resume: true, showCost: false, index })}<button class="more-button" data-index="${index}" type="button">more <span>→</span></button></div>`);
+  displayedChildhood = game.childhood || [];
+  element('#childhood-memory').textContent = `童年回忆 · ${displayedChildhood.length}`;
 };
 const renderDemo = () => renderDesk(buildDemoDesk());
 const snapshotToDesk = (snapshot) => {
@@ -115,12 +118,16 @@ const snapshotToDesk = (snapshot) => {
     const orderedHeld = [held[topIndex], ...held.slice(0, topIndex), ...held.slice(topIndex + 1)];
     return { ...top, type: label, color: cardMeta(label).color, held: orderedHeld };
   });
-  return { phase: stage, round: snapshot.game_over ? snapshot.completed_turn : snapshot.current_turn, connection: snapshot.game_over || snapshot.status === 'game_over' ? '已结束' : '已连接', playerIdentity: snapshot.player_identity || DEFAULT_PLAYER_IDENTITY, opportunity: snapshot.opportunity_market || [], fate: snapshot.fate_market?.cards || [], goals: (snapshot.life_goals || []).map((goal) => [goal.name, goal.scoring_text]), events: snapshot.event_hand || [], debuff: snapshot.current_debuff ? { name: snapshot.current_debuff.name, turns: `剩余 ${snapshot.current_debuff.turns_remaining} 回合`, effect: snapshot.current_debuff.effect_summary } : null, logs: (snapshot.recent_events || []).slice(-LOG_DISPLAY_LIMIT).reverse().map((event) => event.text), dice: (snapshot.dice?.values || []).map((value, index) => ({ value, frozen: frozen.has(index) })), maxDiceCount: snapshot.dice?.max_dice_count || DICE_SLOT_COUNT, rollRevision: snapshot.dice?.roll_revision, resume };
+  return { phase: stage, round: snapshot.game_over ? snapshot.completed_turn : snapshot.current_turn, connection: snapshot.game_over || snapshot.status === 'game_over' ? '已结束' : '已连接', playerIdentity: snapshot.player_identity || DEFAULT_PLAYER_IDENTITY, opportunity: snapshot.opportunity_market || [], fate: snapshot.fate_market?.cards || [], goals: (snapshot.life_goals || []).map((goal) => [goal.name, goal.scoring_text]), events: snapshot.event_hand || [], childhood: snapshot.childhood_cards || [], debuff: snapshot.current_debuff ? { name: snapshot.current_debuff.name, turns: `剩余 ${snapshot.current_debuff.turns_remaining} 回合`, effect: snapshot.current_debuff.effect_summary } : null, logs: (snapshot.recent_events || []).slice(-LOG_DISPLAY_LIMIT).reverse().map((event) => event.text), dice: (snapshot.dice?.values || []).map((value, index) => ({ value, frozen: frozen.has(index) })), maxDiceCount: snapshot.dice?.max_dice_count || DICE_SLOT_COUNT, rollRevision: snapshot.dice?.roll_revision, resume };
 };
 
 const modal = element('#resume-modal');
 const openResume = (card) => { element('#modal-title').textContent = card.type; const held = card.held || []; element('#modal-note').textContent = held.length ? `本类仍持有的履历堆共 ${held.length} 张，按当前堆叠顺序展示，「当前」为顶牌。` : '本类当前没有持有牌。'; element('#modal-cards').innerHTML = held.length ? held.map((item) => `<li>${renderCard({ ...item, type: card.type, color: card.color }, { resume: true, showCost: false })}${item.is_top ? '<span class="current-badge">当前</span>' : ''}</li>`).join('') : '<li class="modal-empty">本类履历堆为空</li>'; modal.showModal(); };
 element('#resume-cards').addEventListener('click', (event) => { const button = event.target.closest('.more-button'); if (button) openResume(displayedResume[button.dataset.index]); }); element('.modal-close').addEventListener('click', () => modal.close()); modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
+const childhoodModal = element('#childhood-modal');
+const openChildhood = () => { element('#childhood-modal-note').textContent = displayedChildhood.length ? '本局 Draft 获得的 3 张童年牌；使用后仍保留在回忆中。' : '童年 Draft 尚未完成。'; element('#childhood-modal-cards').innerHTML = displayedChildhood.length ? displayedChildhood.map((item) => `<li><div class="childhood-status">${escapeHtml(item.status)}</div>${renderCard({ ...item, type: 'C' }, { resume: true, showCost: false })}</li>`).join('') : '<li class="modal-empty">暂无童年牌记录</li>'; childhoodModal.showModal(); };
+element('#childhood-memory').addEventListener('click', openChildhood);
+element('.childhood-modal-close').addEventListener('click', () => childhoodModal.close()); childhoodModal.addEventListener('click', (event) => { if (event.target === childhoodModal) childhoodModal.close(); });
 
 // 图鉴与 Card Detail 共用唯一的正式 /cards/catalog 缓存，不复制、不改写卡牌规则。
 let cardCatalogById = null;

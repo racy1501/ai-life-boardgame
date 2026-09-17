@@ -29,6 +29,7 @@
               <span id="round-status"></span>
               <span id="connection-status" class="connection-status"></span>
             </div>
+            <button id="childhood-memory" class="childhood-memory" type="button">童年回忆 · 0</button>
             <div id="player-emoji" class="player-avatar" aria-label="玩家头像"></div>
             <p id="player-turn" class="player-turn"></p>
           </article>
@@ -44,6 +45,7 @@
       </main>
     </div>
     <dialog id="resume-modal" class="resume-modal" aria-labelledby="modal-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">本类履历堆</p><h2 id="modal-title"></h2><p id="modal-note"></p><ul id="modal-cards"></ul></dialog>
+    <dialog id="childhood-modal" class="resume-modal childhood-modal" aria-labelledby="childhood-modal-title"><button class="modal-close childhood-modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">童年回忆</p><h2 id="childhood-modal-title">本局童年牌</h2><p id="childhood-modal-note"></p><ul id="childhood-modal-cards"></ul></dialog>
     <dialog id="goal-modal" class="goal-modal" aria-labelledby="goal-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">人生目标</p><h2 id="goal-title"></h2><p id="goal-scoring" class="goal-scoring"></p></dialog>
     <dialog id="card-detail-modal" class="card-detail-modal" aria-labelledby="card-detail-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label" id="card-detail-kind"></p><h2 id="card-detail-title"></h2><div class="card-detail-body"><div class="card-detail-side" id="card-detail-card"></div><div class="card-detail-info"><dl id="card-detail-facts" class="detail-list"></dl><dl id="card-detail-rules" class="detail-list"></dl></div></div></dialog>
     <dialog id="card-catalog-modal" class="card-catalog-modal" aria-labelledby="card-catalog-title"><button class="modal-close" type="button" aria-label="关闭">×</button><p class="modal-label">卡牌图鉴</p><div class="catalog-heading"><div class="catalog-heading-main"><h2 id="card-catalog-title">全部卡牌</h2><p class="catalog-hint">点击卡牌可查看详情</p></div><span id="card-catalog-count"></span></div><div id="card-catalog-filters" class="catalog-filters" aria-label="按类型筛选"></div><p id="card-catalog-status" class="catalog-status" aria-live="polite"></p><div id="card-catalog-cards" class="catalog-cards"></div></dialog>
