@@ -341,7 +341,7 @@ class BaseStrategy:
         victim = min(deltas, key=lambda c: (deltas[c], c))
         return {
             'victim': victim,
-            'use_c06': 'C06' in g.hand,
+            'use_hand_cancel': bool(g.hand_effect_cards('cancel_debuff')),
             'use_oh01': (victim != 'OH-01' and g.active('H') == 'OH-01'
                          and g.pool.get('H', 0) >= 1 and deltas[victim] >= 1.0),
             'use_mh02': (victim != 'MH-02' and 'MH-02' in actives
@@ -441,11 +441,11 @@ class RandomLegal(BaseStrategy):
             return {}
         victim = g.rng.choice(actives)
         r = g.rng.random
-        return {'victim': victim, 'use_c06': r() < 0.5,
+        return {'victim': victim, 'use_hand_cancel': r() < 0.5,
                 'use_oh01': r() < 0.5, 'use_mh02': r() < 0.5}
 
     def ye04_target(self):
-        if 'YE-04' not in self.g.hand or not self.g.market:
+        if not self.g.find_hand_effect('protect_market') or not self.g.market:
             return None
         if self.g.rng.random() < 0.5:
             return None

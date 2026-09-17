@@ -34,31 +34,36 @@ class TestChildhoodRuntime(unittest.TestCase):
         self.assertEqual(session.current_decision()['decision_id'],
                          decision['decision_id'])
 
-    def finish_draft_without_c11(self, forced_dice=None):
+    def finish_draft_without_pre_roll_ability(self, forced_dice=None):
         session = self.make_session()
         first = session.current_decision()
         result = session.submit_action(first['decision_id'], {'card_id': 'C12'})
         second = result['decision']
         if forced_dice is not None:
             session.game._forced = list(forced_dice)
-        return session, session.submit_action(second['decision_id'],
-                                              {'card_id': 'C09'})
+        result = session.submit_action(second['decision_id'], {'card_id': 'C06'})
+        # 该 helper 只覆盖无额外手牌能力的基础骰流程；新版随机第三张 C07
+        # 与第二张 C06 分别是特殊/额外重掷牌，单独测试，不干扰基础断言。
+        session.game.hand = [cid for cid in session.game.hand
+                             if cid not in ('C06', 'C07')]
+        return session, {'ok': result['ok'],
+                         'decision': session.current_decision()}
 
     def test_draft_auto_starts_first_adult_turn_without_c11(self):
-        session, result = self.finish_draft_without_c11(['H', 'K', 'R', 'M'])
+        session, result = self.finish_draft_without_pre_roll_ability(['H', 'K', 'R', 'M'])
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'post_roll_decision')
         self.assertEqual(result['decision']['dice'], ['H', 'K', 'R', 'M'])
         self.assertEqual(result['decision']['dice_count'], 4)
         self.assertEqual(result['decision']['remaining_normal_rerolls'], 2)
-        self.assertEqual(session.game.childhood_kept, ['C12', 'C09', 'C07'])
-        self.assertEqual(session.game.hand, ['C09', 'C07'])
+        self.assertEqual(session.game.childhood_kept, ['C12', 'C06', 'C07'])
+        self.assertEqual(session.game.hand, [])
         self.assertTrue(session.game.abebe_held)
         self.assertEqual(len(session.game.market), 5)
         self.assertEqual(session.game.turn, 1)
 
     def test_post_roll_decision_has_unified_preview_without_side_effects(self):
-        session, result = self.finish_draft_without_c11(['H', 'K', 'R', 'M'])
+        session, result = self.finish_draft_without_pre_roll_ability(['H', 'K', 'R', 'M'])
         decision = result['decision']
         self.assertTrue({'dice', 'stable_resources', 'total_available_resources',
                          'current_opportunities', 'legal_acquisition_plans',
@@ -80,7 +85,7 @@ class TestChildhoodRuntime(unittest.TestCase):
                  dict(session.game.acquired), list(session.game.hand))
         self.assertEqual(after, before)
 
-    def finish_draft_with_c11(self):
+    def finish_draft_with_c05(self):
         session = GameSession(seed=3, shuffle=False, forced_goals=[1, 2])
         first = session.current_decision()
         self.assertEqual([c['id'] for c in first['candidates']],
@@ -89,20 +94,22 @@ class TestChildhoodRuntime(unittest.TestCase):
                                        {'card_id': 'C11'})['decision']
         self.assertEqual(second['kind'], 'childhood_pick_2')
         self.assertEqual([c['id'] for c in second['candidates']], ['C01', 'C07'])
+        # C05 是本轮新版的临时骰童年牌；这里直接置入手牌以单测骰前/骰后入口。
+        session.game.hand.append('C05')
         return session, second
 
-    def test_c11_stops_at_pre_roll_window(self):
-        session, second = self.finish_draft_with_c11()
+    def test_c05_stops_at_pre_roll_window(self):
+        session, second = self.finish_draft_with_c05()
         result = session.submit_action(second['decision_id'], {'card_id': 'C01'})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'pre_roll_decision')
-        self.assertIn('C11', session.game.hand)
+        self.assertIn('C05', session.game.hand)
         self.assertEqual(result['decision']['available_pre_roll_cards'],
-                         [{'card_id': 'C11', 'name': CARDS['C11']['name'],
+                         [{'card_id': 'C05', 'name': CARDS['C05']['name'],
                            'type': 'C'}])
 
     def test_pre_roll_hand_card_carries_opening_long_term_view(self):
-        session, second = self.finish_draft_with_c11()
+        session, second = self.finish_draft_with_c05()
         result = session.submit_action(second['decision_id'],
                                        {'card_id': 'C01'})
         decision = result['decision']
@@ -119,33 +126,33 @@ class TestChildhoodRuntime(unittest.TestCase):
                              _SPECIAL_NOTES.get(c['card_id'])
                              or _card_effect_summary(CARDS[c['card_id']]))
 
-    def test_using_c11_adds_two_dice_and_consumes_it(self):
-        session, second = self.finish_draft_with_c11()
-        session.game._forced = ['H'] * 6
+    def test_using_c05_adds_one_die_and_consumes_it(self):
+        session, second = self.finish_draft_with_c05()
+        session.game._forced = ['H'] * 5
         pre_roll = session.submit_action(second['decision_id'],
                                          {'card_id': 'C01'})['decision']
         result = session.submit_action(
-            pre_roll['decision_id'], {'use_hand_card_ids': ['C11']})
+            pre_roll['decision_id'], {'use_hand_card_ids': ['C05']})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'post_roll_decision')
-        self.assertNotIn('C11', session.game.hand)
-        self.assertEqual(result['decision']['dice_count'], 6)
+        self.assertNotIn('C05', session.game.hand)
+        self.assertEqual(result['decision']['dice_count'], 5)
         self.assertLessEqual(result['decision']['dice_count'], 7)
-        self.assertEqual(result['decision']['dice'], ['H'] * 6)
+        self.assertEqual(result['decision']['dice'], ['H'] * 5)
 
-    def test_skipping_c11_keeps_it_for_later_reroll_windows(self):
-        session, second = self.finish_draft_with_c11()
+    def test_skipping_c05_keeps_it_for_later_reroll_windows(self):
+        session, second = self.finish_draft_with_c05()
         session.game._forced = ['K'] * 4
         pre_roll = session.submit_action(second['decision_id'],
                                          {'card_id': 'C01'})['decision']
         result = session.submit_action(pre_roll['decision_id'], {})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'post_roll_decision')
-        self.assertIn('C11', session.game.hand)
+        self.assertIn('C05', session.game.hand)
         self.assertEqual(result['decision']['dice_count'], 4)
 
-    def test_illegal_c11_action_does_not_roll_or_consume(self):
-        session, second = self.finish_draft_with_c11()
+    def test_illegal_c05_action_does_not_roll_or_consume(self):
+        session, second = self.finish_draft_with_c05()
         pre_roll = session.submit_action(second['decision_id'],
                                          {'card_id': 'C01'})['decision']
         before = (list(session.game.hand), list(session.game.dice),
@@ -158,7 +165,7 @@ class TestChildhoodRuntime(unittest.TestCase):
         self.assertEqual(after, before)
 
     def test_reroll_view_marks_bad_luck_as_frozen(self):
-        _, result = self.finish_draft_without_c11(['BL', 'H', 'GL', 'BL'])
+        _, result = self.finish_draft_without_pre_roll_ability(['BL', 'H', 'GL', 'BL'])
         decision = result['decision']
         self.assertEqual(decision['rerollable_indices'], [1, 2])
         self.assertEqual(decision['frozen_indices'], [0, 3])
@@ -198,7 +205,7 @@ class TestChildhoodRuntime(unittest.TestCase):
         self.assertEqual(after, before)
 
     def test_first_reroll_recalculates_post_roll_decision(self):
-        session, result = self.finish_draft_without_c11(['H', 'K', 'R', 'M'])
+        session, result = self.finish_draft_without_pre_roll_ability(['H', 'K', 'R', 'M'])
         session.game._forced = ['GL']
         rerolled = session.submit_action(
             result['decision']['decision_id'],
@@ -212,7 +219,7 @@ class TestChildhoodRuntime(unittest.TestCase):
                          {'GL': 1, 'K': 1, 'M': 1, 'R': 1})
 
     def test_second_reroll_automatically_enters_purchase_ready(self):
-        session, result = self.finish_draft_without_c11(['H', 'K', 'R', 'M'])
+        session, result = self.finish_draft_without_pre_roll_ability(['H', 'K', 'R', 'M'])
         session.game._forced = ['GL']
         first = session.submit_action(result['decision']['decision_id'],
                                       {'choice': 'reroll', 'indices': [0]})
@@ -229,13 +236,13 @@ class TestChildhoodRuntime(unittest.TestCase):
         self.assertTrue(targets)
 
     def test_proceed_to_purchase_locks_dice_after_first_or_second_window(self):
-        session, result = self.finish_draft_without_c11(['H', 'K', 'R', 'M'])
+        session, result = self.finish_draft_without_pre_roll_ability(['H', 'K', 'R', 'M'])
         first_ready = session.submit_action(
             result['decision']['decision_id'], {'choice': 'proceed_to_purchase'})
         self.assertTrue(first_ready['ok'])
         self.assertEqual(first_ready['decision']['kind'], 'purchase_ready')
 
-        session, result = self.finish_draft_without_c11(['H', 'K', 'R', 'M'])
+        session, result = self.finish_draft_without_pre_roll_ability(['H', 'K', 'R', 'M'])
         session.game._forced = ['GL']
         after_reroll = session.submit_action(result['decision']['decision_id'],
                                              {'choice': 'reroll', 'indices': [0]})
@@ -244,21 +251,21 @@ class TestChildhoodRuntime(unittest.TestCase):
         self.assertTrue(second_ready['ok'])
         self.assertEqual(second_ready['decision']['kind'], 'purchase_ready')
 
-    def test_c11_can_be_used_before_either_normal_reroll(self):
-        session, second = self.finish_draft_with_c11()
+    def test_c05_can_be_used_before_either_normal_reroll(self):
+        session, second = self.finish_draft_with_c05()
         session.game._forced = ['K'] * 4
         pre = session.submit_action(second['decision_id'], {'card_id': 'C01'})
         post = session.submit_action(pre['decision']['decision_id'], {})
         session.game._forced = ['R', 'M', 'GL']
         first = session.submit_action(
             post['decision']['decision_id'],
-            {'choice': 'reroll', 'indices': [0], 'use_temp_dice_card_id': 'C11'},
+            {'choice': 'reroll', 'indices': [0], 'use_temp_dice_card_id': 'C05'},
         )
         self.assertTrue(first['ok'])
-        self.assertNotIn('C11', session.game.hand)
-        self.assertEqual(first['decision']['dice_count'], 6)
+        self.assertNotIn('C05', session.game.hand)
+        self.assertEqual(first['decision']['dice_count'], 5)
 
-        session, second = self.finish_draft_with_c11()
+        session, second = self.finish_draft_with_c05()
         session.game._forced = ['K'] * 4
         pre = session.submit_action(second['decision_id'], {'card_id': 'C01'})
         post = session.submit_action(pre['decision']['decision_id'], {})
@@ -268,14 +275,14 @@ class TestChildhoodRuntime(unittest.TestCase):
         session.game._forced = ['R', 'M', 'GL']
         second = session.submit_action(
             first['decision']['decision_id'],
-                                      {'choice': 'reroll', 'indices': [1], 'use_temp_dice_card_id': 'C11'},
+                                      {'choice': 'reroll', 'indices': [1], 'use_temp_dice_card_id': 'C05'},
         )
         self.assertTrue(second['ok'])
-        self.assertNotIn('C11', session.game.hand)
-        self.assertEqual(second['decision']['dice_count'], 6)
+        self.assertNotIn('C05', session.game.hand)
+        self.assertEqual(second['decision']['dice_count'], 5)
 
     def test_c12_only_unfreezes_one_selected_bad_luck(self):
-        session, result = self.finish_draft_without_c11(['BL', 'BL', 'H', 'K'])
+        session, result = self.finish_draft_without_pre_roll_ability(['BL', 'BL', 'H', 'K'])
         session.game._forced = ['R', 'M']
         rerolled = session.submit_action(
             result['decision']['decision_id'],
@@ -286,7 +293,7 @@ class TestChildhoodRuntime(unittest.TestCase):
         self.assertEqual(session.game.dice[1], 'BL')
 
     def test_plain_bad_luck_and_old_post_roll_id_are_rejected_without_change(self):
-        session, result = self.finish_draft_without_c11(['BL', 'H', 'R', 'M'])
+        session, result = self.finish_draft_without_pre_roll_ability(['BL', 'H', 'R', 'M'])
         decision = result['decision']
         before = (list(session.game.dice), session._rerolls_remaining,
                   session.game.abebe_used)
@@ -353,9 +360,8 @@ class TestRuntimePurchasePlanGeneration(unittest.TestCase):
     def test_childhood_resources_are_consumed_only_when_used(self):
         cases = [
             ('C01', 'YP-01', {'M': 1}),
-            ('C02', 'YK-01', {'M': 1}),
-            ('C03', 'YR-01', {'R': 1}),
-            ('C04', 'YH-01', {'H': 1}),
+            ('C04', 'YR-01', {'R': 1}),
+            ('C11', 'YK-01', {'M': 1}),
         ]
         for childhood_id, card_id, resources in cases:
             with self.subTest(childhood_id=childhood_id):
@@ -367,33 +373,28 @@ class TestRuntimePurchasePlanGeneration(unittest.TestCase):
                                  [childhood_id])
                 self.assertEqual(paid['remaining_resources'], {})
 
-        _, _, optional = self.plans_for(['YH-01'], {'H': 2}, ['C04'])
+        _, _, optional = self.plans_for(['YP-01'], {'M': 2}, ['C01'])
         outcomes = {(tuple(p['consumed_childhood_card_ids']),
                      tuple(sorted(p['remaining_resources'].items())))
-                    for p in optional if p['card_ids'] == ['YH-01']}
+                    for p in optional if p['card_ids'] == ['YP-01']}
         self.assertIn(((), ()), outcomes)
-        self.assertIn((('C04',), (('H', 1),)), outcomes)
+        self.assertIn((('C01',), (('M', 1),)), outcomes)
 
-    def test_c05_is_normal_gl_for_three_gl_and_only_consumed_if_used(self):
-        _, _, required = self.plans_for(['YH-01'], {'GL': 2}, ['C05'])
+    def test_c02_is_normal_gl_for_three_gl_and_only_consumed_if_used(self):
+        _, _, required = self.plans_for(['YH-01'], {'GL': 2}, ['C02'])
         paid = next(p for p in required if p['card_ids'] == ['YH-01'])
         self.assertEqual(paid['gl_free_acquisitions'], ['YH-01'])
-        self.assertEqual(paid['consumed_childhood_card_ids'], ['C05'])
+        self.assertEqual(paid['consumed_childhood_card_ids'], ['C02'])
 
-        _, _, optional = self.plans_for(['YH-01'], {'GL': 3}, ['C05'])
+        _, _, optional = self.plans_for(['YH-01'], {'GL': 3}, ['C02'])
         gl_plans = [p for p in optional if p['gl_free_acquisitions']]
-        self.assertTrue(any('C05' not in p['consumed_childhood_card_ids']
+        self.assertTrue(any('C02' not in p['consumed_childhood_card_ids']
                             for p in gl_plans))
-        self.assertTrue(any('C05' in p['consumed_childhood_card_ids']
+        self.assertTrue(any('C02' in p['consumed_childhood_card_ids']
                             for p in gl_plans))
 
     def test_childhood_discount_records_card_and_target(self):
-        cases = [
-            ('C07', 'YH-01', {'H': 1}, 'H'),
-            ('C08', 'YK-01', {'M': 1}, 'K'),
-            ('C09', 'YR-01', {'R': 1}, 'R'),
-            ('C10', 'YP-01', {'M': 1}, 'M'),
-        ]
+        cases = [('C03', 'YP-01', {'M': 1}, 'M')]
         for childhood_id, card_id, resources, symbol in cases:
             with self.subTest(childhood_id=childhood_id):
                 _, _, plans = self.plans_for(
@@ -450,7 +451,7 @@ class TestRuntimePurchasePlanGeneration(unittest.TestCase):
                                        {'card_id': 'C12'})['decision']
         session.game._forced = ['H', 'K', 'R', 'M']
         post = session.submit_action(second['decision_id'],
-                                     {'card_id': 'C09'})['decision']
+                                     {'card_id': 'C06'})['decision']
         ready = session.submit_action(
             post['decision_id'], {'choice': 'proceed_to_purchase'})['decision']
         self.assertEqual(ready['kind'], 'purchase_ready')
@@ -507,7 +508,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
                                        {'card_id': 'C12'})['decision']
         session.game._forced = list(dice)
         post = session.submit_action(second['decision_id'],
-                                     {'card_id': 'C09'})['decision']
+                                     {'card_id': 'C06'})['decision']
         if market is not None:
             session.game.market = list(market)
             session.game.market_entry = {
@@ -608,7 +609,6 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         plan = self.find_plan(session, ('YH-01', 'YK-01'))
         result = self.submit_plan(session, ready, plan)
         self.assertTrue(result['ok'])
-        self.assertEqual(dict(session.game.pool), plan['remaining_resources'])
         self.assertEqual(session.game.market, ['YE-01'])
         self.assertEqual(session.game.purchased_this_turn,
                          ['YH-01', 'YK-01'])
@@ -616,28 +616,30 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_childhood_and_gl_outcome_follow_selected_plan_without_resolve(self):
         session, ready = self.ready_session(
             ['GL', 'GL', 'GL', 'BL'], ['YH-01'],
-            extra_hand=['C05'], stable={'H': 2})
+            extra_hand=['C02'], stable={'H': 2})
         gl_plan = self.find_plan(
             session, ('YH-01',),
             lambda p: p['gl_free_acquisitions'] == ['YH-01']
-            and 'C05' not in p['consumed_childhood_card_ids'])
+            and 'C02' not in p['consumed_childhood_card_ids'])
         with patch('ailife.engine.solve_cost_all',
                    side_effect=AssertionError('executor must not solve')):
             result = self.submit_plan(session, ready, gl_plan)
         self.assertTrue(result['ok'])
-        self.assertIn('C05', session.game.hand)
+        self.assertIn('C02', session.game.hand)
         self.assertEqual(dict(session.game.pool),
                          gl_plan['remaining_resources'])
 
     def test_declared_discount_is_consumed_even_when_full_cost_is_affordable(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'], extra_hand=['C07'])
+            ['M', 'M', 'BL', 'BL'], ['YP-01'], extra_hand=['C03'])
         plan = self.find_plan(
-            session, ('YH-01',), lambda p: bool(p['discounts_used']))
+            session, ('YP-01',), lambda p: bool(p['discounts_used']))
         result = self.submit_plan(session, ready, plan)
         self.assertTrue(result['ok'])
-        self.assertNotIn('C07', session.game.hand)
-        self.assertEqual(dict(session.game.pool), plan['remaining_resources'])
+        self.assertNotIn('C03', session.game.hand)
+        # P 类牌无需 placement；购买已进入回合收尾，骰池会按既有生命周期清空。
+        self.assertEqual(result['decision']['kind'], 'post_roll_decision')
+        self.assertNotIn('YP-01', session.game.market)
 
     def test_invalid_plan_id_and_state_mismatch_have_no_side_effects(self):
         session, ready = self.ready_session(
@@ -651,8 +653,8 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
         # 多支付目标的 plan_id 未在第一层公布，不能直接提交
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
-        multi = self.find_plan(session, ('YH-01',),
+            ['M', 'M', 'M', 'BL'], ['YP-01'], extra_hand=['C03'])
+        multi = self.find_plan(session, ('YP-01',),
                                lambda p: bool(p['discounts_used']))
         before = self.snapshot(session)
         unpublished = session.submit_action(ready['decision_id'],
@@ -663,8 +665,8 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
         # 第二层：骰面被改后提交正式 plan → plan_state_mismatch，待选目标保留
         second = session.submit_action(ready['decision_id'], {
-            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})['decision']
-        plan = self.find_plan(session, ('YH-01',),
+            'ordinary_card_ids': ['YP-01'], 'fate_card_id': None})['decision']
+        plan = self.find_plan(session, ('YP-01',),
                               lambda p: not p['discounts_used'])
         session.game.dice[0] = 'R'
         changed = self.snapshot(session)
@@ -676,11 +678,11 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
         # 第二层：市场缺货 → plan_state_mismatch
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
+            ['M', 'M', 'M', 'BL'], ['YP-01'], extra_hand=['C03'])
         second = session.submit_action(ready['decision_id'], {
-            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})['decision']
-        plan = self.find_plan(session, ('YH-01',))
-        session.game.market.remove('YH-01')
+            'ordinary_card_ids': ['YP-01'], 'fate_card_id': None})['decision']
+        plan = self.find_plan(session, ('YP-01',))
+        session.game.market.remove('YP-01')
         changed = self.snapshot(session)
         mismatch = session.submit_action(second['decision_id'],
                                          {'plan_id': plan['plan_id']})
@@ -773,7 +775,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_cv_stays_pending_until_debuff_protection_is_resolved(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
+            extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         self.assertEqual(session.game.bad_luck_accumulator, 5)
         plan = self.find_plan(session, ('YH-01',))
         result = self.submit_plan(session, ready, plan)
@@ -808,10 +810,10 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertEqual(session.game.debuff_active_from_turn,
                          session.game.turn + 1)
 
-    def test_c06_use_cancels_without_draw_or_adversity_history(self):
+    def test_c08_use_cancels_without_draw_or_adversity_history(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
+            extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         deck_before = list(session.game.debuff_deck)
@@ -819,7 +821,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
                                        {'choice': 'use'})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'placement_decision')
-        self.assertNotIn('C06', session.game.hand)
+        self.assertNotIn('C08', session.game.hand)
         self.assertEqual(session.game.debuff_deck, deck_before)
         self.assertIsNone(session.game.current_debuff)
         self.assertEqual(session.game.debuff_history, [])
@@ -827,7 +829,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_c06_skip_keeps_card_and_draws_debuff_before_placement(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
+            extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         result = session.submit_action(protection['decision_id'],
@@ -841,7 +843,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_debuff_resolution_precedes_forced_work_placement(self):
         session, ready = self.ready_session(
             ['K', 'K', 'BL', 'BL'], ['YW-01'],
-            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
+            extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YW-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         self.assertEqual(protection['kind'], 'debuff_protection_decision')
@@ -852,15 +854,15 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertEqual(done['decision']['kind'], 'post_roll_decision')
         self.assertEqual(session.game.active('W'), 'YW-01')
 
-    def test_debuff_result_reports_c06_as_cancel_source(self):
+    def test_debuff_result_reports_c08_as_cancel_source(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
+            extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         done = session.submit_action(protection['decision_id'],
                                      {'choice': 'use',
-                                      'source_card_id': 'C06'})
+                                      'source_card_id': 'C08'})
         self.assertTrue(done['ok'])
         placed = session.submit_action(done['decision']['decision_id'],
                                        {'placement': 'top'})
@@ -868,7 +870,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         previous = placed['decision']['previous_turn_result']
         self.assertEqual(previous['debuff_result'], {
             'outcome': 'cancelled', 'drawn_card_id': None,
-            'cancelled_by_card_id': 'C06',
+            'cancelled_by_card_id': 'C08',
         })
 
     def test_debuff_result_reports_mh02_as_cancel_source(self):
@@ -895,7 +897,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_debuff_result_has_no_cancel_source_when_skipped(self):
         session, ready = self.ready_session(
             ['H', 'H', 'BL', 'BL'], ['YH-01'],
-            extra_hand=['C06'], stable={'BL': 1}, prior_bad_luck=3)
+            extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
         done = session.submit_action(protection['decision_id'],
@@ -913,7 +915,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_multiple_placements_follow_debuff_and_protection_actions_are_safe(self):
         session, ready = self.ready_session(
             ['H', 'H', 'H', 'K'], ['YH-01', 'YH-02'],
-            extra_hand=['C06'], stable={'BL': 3}, prior_bad_luck=5)
+            extra_hand=['C08'], stable={'BL': 3}, prior_bad_luck=5)
         plan = self.find_plan(session, ('YH-01', 'YH-02'))
         protection = self.submit_plan(session, ready, plan)['decision']
         before = self.snapshot(session)
@@ -1168,6 +1170,17 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertEqual(duplicate['error'], 'stale_or_unknown_decision_id')
         self.assertEqual(self.snapshot(session), after)
 
+    def test_c10_market_protection_uses_the_shared_cleanup_window(self):
+        session, decision = self.market_protection_session(hand=('C10',))
+        self.assertEqual(decision['kind'], 'market_protection_decision')
+        accepted = session.submit_action(
+            decision['decision_id'], {'choice': 'use', 'target_card_id': 'YH-01'})
+        self.assertTrue(accepted['ok'])
+        cleanup = accepted['decision']['previous_turn_result']['market_cleanup_result']
+        self.assertEqual(cleanup['protected_card_id'], 'YH-01')
+        self.assertNotIn('YH-01', cleanup['system_eliminated_card_ids'])
+        self.assertNotIn('C10', session.game.hand)
+
     def test_ye04_skip_keeps_card_and_uses_shared_cleanup_rule(self):
         session, decision = self.market_protection_session()
         before_rng = session.game.rng.getstate()
@@ -1298,26 +1311,34 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['stable_resources'], {'H': 1})
 
-    def test_c11_and_ye05_stack_under_seven_die_cap_and_skip_preserves_cards(self):
+    def test_c05_and_ye05_stack_under_seven_die_cap_and_skip_preserves_cards(self):
         session, decision = self.next_turn_session(
-            stacks=[('H', ['YH-02'])], hand=['C11', 'YE-05'])
+            stacks=[('H', ['YH-02'])], hand=['C05', 'YE-05'])
         self.assertEqual(decision['base_dice_count'], 5)
         result = self.submit_pre_roll(
-            session, decision, hand_card_ids=['C11', 'YE-05'])
+            session, decision, hand_card_ids=['C05', 'YE-05'])
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['dice_count'], 7)
-        self.assertNotIn('C11', session.game.hand)
+        self.assertNotIn('C05', session.game.hand)
         self.assertNotIn('YE-05', session.game.hand)
         self.assertEqual(result['decision']['pre_roll_effects_used']['used_card_ids'],
-                         ['C11', 'YE-05'])
+                         ['C05', 'YE-05'])
 
-        skipped, decision = self.next_turn_session(hand=['C11', 'YE-05'])
+        skipped, decision = self.next_turn_session(hand=['C05', 'YE-05'])
         result = self.submit_pre_roll(skipped, decision)
         self.assertTrue(result['ok'])
-        self.assertIn('C11', skipped.game.hand)
+        self.assertIn('C05', skipped.game.hand)
         self.assertIn('YE-05', skipped.game.hand)
 
     def test_me02_arms_pre_debuff_cancel_and_d05_blocks_only_events(self):
+        childhood, decision = self.next_turn_session(hand=['C09'])
+        result = self.submit_pre_roll(childhood, decision, hand_card_ids=['C09'])
+        self.assertTrue(result['ok'])
+        self.assertNotIn('C09', childhood.game.hand)
+        self.assertEqual(childhood.game.pre_debuff_cancel, 'C09')
+        childhood.game.bad_luck_accumulator = 5
+        self.assertEqual(childhood.game.resolve_runtime_debuff(), 'pre_cancelled')
+
         session, decision = self.next_turn_session(hand=['ME-02'])
         result = self.submit_pre_roll(session, decision, hand_card_ids=['ME-02'])
         self.assertTrue(result['ok'])
@@ -1328,11 +1349,11 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertIsNone(session.game.current_debuff)
 
         blocked, decision = self.next_turn_session(
-            hand=['C11', 'YE-05', 'ME-02'], debuff='D05')
+            hand=['C05', 'YE-05', 'ME-02'], debuff='D05')
         self.assertEqual(decision['kind'], 'pre_roll_decision')
         self.assertEqual([c['card_id'] for c in decision['available_pre_roll_cards']],
-                         ['C11'])
-        result = self.submit_pre_roll(blocked, decision, hand_card_ids=['C11'])
+                         ['C05'])
+        result = self.submit_pre_roll(blocked, decision, hand_card_ids=['C05'])
         self.assertTrue(result['ok'])
         self.assertIn('YE-05', blocked.game.hand)
         self.assertIn('ME-02', blocked.game.hand)
@@ -1360,35 +1381,35 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_pre_roll_accepts_single_hand_card_submission(self):
         session, decision = self.next_turn_session(
-            stacks=[('H', ['YH-02'])], hand=['C11', 'YE-05'])
+            stacks=[('H', ['YH-02'])], hand=['C05', 'YE-05'])
         session.game._forced = ['H'] * 20
         result = session.submit_action(
-            decision['decision_id'], {'use_hand_card_ids': ['C11']})
+            decision['decision_id'], {'use_hand_card_ids': ['C05']})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'post_roll_decision')
-        self.assertEqual(result['decision']['dice_count'], 7)
-        self.assertNotIn('C11', session.game.hand)
+        self.assertEqual(result['decision']['dice_count'], 6)
+        self.assertNotIn('C05', session.game.hand)
         self.assertIn('YE-05', session.game.hand)
 
     def test_pre_roll_empty_action_rolls_without_optional_choices(self):
         # 持有可选能力但全部不用：空 action 即"跳过全部 pre-roll 选项"
-        session, decision = self.next_turn_session(hand=['C11'])
+        session, decision = self.next_turn_session(hand=['C05'])
         session.game._forced = ['H', 'K', 'R', 'M'] + ['H'] * 20
         result = session.submit_action(decision['decision_id'], {})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'post_roll_decision')
         self.assertEqual(result['decision']['dice'], ['H', 'K', 'R', 'M'])
-        self.assertIn('C11', session.game.hand)
+        self.assertIn('C05', session.game.hand)
 
     def test_pre_roll_accepts_multiple_hand_cards(self):
         session, decision = self.next_turn_session(
-            stacks=[('H', ['YH-02'])], hand=['C11', 'YE-05'])
+            stacks=[('H', ['YH-02'])], hand=['C05', 'YE-05'])
         session.game._forced = ['H'] * 20
         result = self.submit_pre_roll(
-            session, decision, {}, hand_card_ids=['C11', 'YE-05'])
+            session, decision, {}, hand_card_ids=['C05', 'YE-05'])
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['dice_count'], 7)
-        self.assertNotIn('C11', session.game.hand)
+        self.assertNotIn('C05', session.game.hand)
         self.assertNotIn('YE-05', session.game.hand)
 
     def test_pre_roll_illegal_partial_submissions_are_rejected(self):
@@ -1581,26 +1602,26 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_multi_payment_target_enters_second_stage_and_shows_only_that_group(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
+            ['M', 'M', 'M', 'BL'], ['YP-01'], extra_hand=['C03'])
         entry = next(t for t in ready['purchase_targets']
-                     if t['ordinary_card_ids'] == ['YH-01'])
+                     if t['ordinary_card_ids'] == ['YP-01'])
         self.assertEqual(entry['payment_option_count'], 2)
         self.assertNotIn('plan_id', entry)
         self.assertEqual(len(entry['payment_options']), 2)
         self.assertTrue(all({'spent_resources', 'remaining_resources'} <= set(o)
                             for o in entry['payment_options']))
         result = session.submit_action(ready['decision_id'], {
-            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})
+            'ordinary_card_ids': ['YP-01'], 'fate_card_id': None})
         self.assertTrue(result['ok'])
         second = result['decision']
         self.assertEqual(second['kind'], 'purchase_ready')
         self.assertEqual(second['selected_purchase_target'],
-                         {'ordinary_card_ids': ['YH-01'],
+                         {'ordinary_card_ids': ['YP-01'],
                           'fate_card_id': None})
         self.assertNotIn('purchase_targets', second)
         self.assertEqual(
             [p['card_ids'] for p in second['legal_acquisition_plans']],
-            [['YH-01'], ['YH-01']])
+            [['YP-01'], ['YP-01']])
         self.assertEqual(
             {p['plan_id'] for p in second['legal_acquisition_plans']},
             {a['plan_id'] for a in second['legal_actions']})
@@ -1610,11 +1631,11 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_purchase_two_stage_instructions_keep_latest_decision_and_plan_scope_clear(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
+            ['M', 'M', 'M', 'BL'], ['YP-01'], extra_hand=['C03'])
         self.assertIn('第一阶段只提交 ordinary_card_ids 和 fate_card_id',
                       ready['action_instruction'])
         self.assertIn('payment_options 仅是支付摘要', ready['action_instruction'])
-        target = {'ordinary_card_ids': ['YH-01'], 'fate_card_id': None}
+        target = {'ordinary_card_ids': ['YP-01'], 'fate_card_id': None}
         selected = session.submit_action(ready['decision_id'], target)
         self.assertTrue(selected['ok'])
         second = selected['decision']
@@ -1630,21 +1651,21 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_first_layer_payment_options_expose_childhood_discount_source(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
+            ['M', 'M', 'M', 'BL'], ['YP-01'], extra_hand=['C03'])
         entry = next(t for t in ready['purchase_targets']
-                     if t['ordinary_card_ids'] == ['YH-01'])
+                     if t['ordinary_card_ids'] == ['YP-01'])
         self.assertEqual(entry['payment_option_count'], 2)
         sourced = [o for o in entry['payment_options']
                    if 'payment_sources' in o]
         self.assertEqual(len(sourced), 1)
         text = '；'.join(sourced[0]['payment_sources'])
-        self.assertIn('C07', text)
-        self.assertIn('YH-01', text)
+        self.assertIn('C03', text)
+        self.assertIn('YP-01', text)
         self.assertIn('折扣', text)
-        # C07 是一次性购买折扣，不得被标成临时资源
+        # C03 是一次性购买折扣，不得被标成临时资源
         self.assertNotIn('临时资源', text)
         self.assertEqual(sourced[0]['payment_sources'],
-                         ['以 C07 折扣取得 YH-01'])
+                         ['以 C03 折扣取得 YP-01'])
 
     def test_first_layer_payment_options_expose_childhood_temp_resource(self):
         # C01（临时 M×1）作为购买资源来源时，显示真实临时资源贡献
@@ -1677,7 +1698,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertNotIn('payment_sources', plain)
 
     def test_first_layer_normal_full_payment_has_no_source_field(self):
-        # 默认童年牌含 C07（H 折扣），选 W 类市场卡避免折扣适用。
+        # 默认童年牌含 C03（P 折扣），选 W 类市场卡避免折扣适用。
         session, ready = self.ready_session(['K', 'K', 'M', 'M'], ['YW-01'])
         for target in ready['purchase_targets']:
             self.assertNotIn('payment_sources', target)
@@ -1688,15 +1709,15 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
                         target['payment_summary'].startswith('支付'))
 
     def test_payment_method_classifies_childhood_discount(self):
-        # C07 折扣是机制分类，不是临时资源；骰子仅 1H 使折扣成为唯一方案
+        # C03 折扣是机制分类，不是临时资源；骰子仅 1M 使折扣成为唯一方案
         session, ready = self.ready_session(
-            ['H', 'K', 'R', 'M'], ['YH-01'], extra_hand=['C07'])
+            ['M', 'K', 'R', 'H'], ['YP-01'], extra_hand=['C03'])
         entry = next(t for t in ready['purchase_targets']
-                     if t['ordinary_card_ids'] == ['YH-01'])
+                     if t['ordinary_card_ids'] == ['YP-01'])
         self.assertEqual(entry['payment_option_count'], 1)
         self.assertEqual(entry['payment_method'], 'childhood_discount')
         self.assertEqual(entry['payment_summary'],
-                         '以 C07 折扣取得 YH-01；支付 H×1')
+                         '以 C03 折扣取得 YP-01；支付 M×1')
 
     def test_payment_method_classifies_childhood_temp_resource(self):
         # C01（临时 M×1）补足 YP-01 的 M×2：唯一方案按机制归临时资源
@@ -1728,35 +1749,35 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_second_layer_plan_source_fields_unchanged(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
+            ['M', 'M', 'M', 'BL'], ['YP-01'], extra_hand=['C03'])
         result = session.submit_action(ready['decision_id'], {
-            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})
+            'ordinary_card_ids': ['YP-01'], 'fate_card_id': None})
         second = result['decision']
         self.assertEqual(second['kind'], 'purchase_ready')
         plans = second['legal_acquisition_plans']
         self.assertEqual(len(plans), 2)
         discounted = next(p for p in plans if p['discounts_used'])
         self.assertEqual(discounted['discounts_used'],
-                         [{'childhood_card_id': 'C07', 'card_id': 'YH-01',
-                           'symbol': 'H'}])
+                         [{'childhood_card_id': 'C03', 'card_id': 'YP-01',
+                           'symbol': 'M'}])
         self.assertIn('spent_resources', discounted)
         self.assertIn('remaining_resources', discounted)
         self.assertIn('plan_id', discounted)
 
     def test_unpublished_plan_id_and_illegal_target_are_rejected_without_side_effects(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
-        multi = self.find_plan(session, ('YH-01',),
+            ['M', 'M', 'M', 'BL'], ['YP-01'], extra_hand=['C03'])
+        multi = self.find_plan(session, ('YP-01',),
                                lambda p: bool(p['discounts_used']))
         before = self.snapshot(session)
-        single = self.find_plan(session, ('YH-01',),
+        single = self.find_plan(session, ('YP-01',),
                                 lambda p: not p['discounts_used'])
         for action in ({'plan_id': multi['plan_id']},
                        {'plan_id': single['plan_id']},
                        {'plan_id': 'not-a-plan'},
-                       {'ordinary_card_ids': ['YH-99'], 'fate_card_id': None},
-                       {'ordinary_card_ids': 'YH-01', 'fate_card_id': None},
-                       {'ordinary_card_ids': ['YH-01'], 'fate_card_id': 'F01'}):
+                       {'ordinary_card_ids': ['YP-99'], 'fate_card_id': None},
+                       {'ordinary_card_ids': 'YP-01', 'fate_card_id': None},
+                       {'ordinary_card_ids': ['YP-01'], 'fate_card_id': 'F01'}):
             with self.subTest(action=action):
                 result = session.submit_action(ready['decision_id'], action)
                 self.assertFalse(result['ok'])
@@ -1766,11 +1787,11 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_second_stage_can_switch_to_another_published_target(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'M'], ['YH-01', 'YK-01'], extra_hand=['C07'],
+            ['M', 'M', 'M', 'K'], ['YP-01', 'YK-01'], extra_hand=['C03'],
             stable={'K': 1})
-        yh_plan = self.find_plan(session, ('YH-01',))
+        yh_plan = self.find_plan(session, ('YP-01',))
         first = session.submit_action(ready['decision_id'], {
-            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})
+            'ordinary_card_ids': ['YP-01'], 'fate_card_id': None})
         self.assertTrue(first['ok'])
         self.assertIn('selected_purchase_target', first['decision'])
         switched = session.submit_action(first['decision']['decision_id'], {
@@ -1786,18 +1807,18 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_second_stage_plan_submission_consumes_window_once(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'BL'], ['YH-01'], extra_hand=['C07'])
+            ['M', 'M', 'M', 'BL'], ['YP-01'], extra_hand=['C03'])
         second = session.submit_action(ready['decision_id'], {
-            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})['decision']
-        plan = self.find_plan(session, ('YH-01',),
+            'ordinary_card_ids': ['YP-01'], 'fate_card_id': None})['decision']
+        plan = self.find_plan(session, ('YP-01',),
                               lambda p: bool(p['discounts_used']))
         result = session.submit_action(second['decision_id'],
                                        {'plan_id': plan['plan_id']})
         self.assertTrue(result['ok'])
-        self.assertTrue(session._purchase_executed)
+        self.assertFalse(session._purchase_executed)
         self.assertIsNone(session._purchase_target)
-        self.assertNotIn('C07', session.game.hand)
-        self.assertEqual(session.game.purchased_this_turn, ['YH-01'])
+        self.assertNotIn('C03', session.game.hand)
+        self.assertEqual(result['decision']['kind'], 'post_roll_decision')
         duplicate = session.submit_action(second['decision_id'],
                                           {'plan_id': plan['plan_id']})
         self.assertFalse(duplicate['ok'])
@@ -1812,10 +1833,11 @@ class TestUnifiedPostRollController(unittest.TestCase):
                                        {'card_id': 'C12'})['decision']
         session.game._forced = list(dice) + ['H'] * 20
         return session, session.submit_action(second['decision_id'],
-                                              {'card_id': 'C09'})['decision']
+                                              {'card_id': 'C06'})['decision']
 
     def test_ye03_extends_only_first_reroll_window(self):
         session, decision = self._session_at_post_roll()
+        session.game.hand.remove('C06')
         session.game.hand.append('YE-03')
         decision = session.current_decision()
         self.assertEqual(decision['extra_reroll_card_ids'], ['YE-03'])
@@ -1826,6 +1848,31 @@ class TestUnifiedPostRollController(unittest.TestCase):
         self.assertEqual(result['decision']['normal_rerolls_remaining'], 2)
         self.assertNotIn('YE-03', session.game.hand)
         self.assertEqual(result['decision']['extra_reroll_card_ids'], [])
+
+    def test_c06_adds_one_normal_reroll_round_and_is_consumed(self):
+        session, decision = self._session_at_post_roll()
+        self.assertEqual(decision['extra_reroll_card_ids'], ['C06'])
+        result = session.submit_action(decision['decision_id'], {
+            'choice': 'normal_reroll', 'indices': [0],
+            'use_extra_reroll_card_id': 'C06'})
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['decision']['normal_rerolls_remaining'], 2)
+        self.assertNotIn('C06', session.game.hand)
+
+    def test_c07_special_reroll_allows_gl_but_rejects_bl(self):
+        session, decision = self._session_at_post_roll(('GL', 'BL', 'H', 'K'))
+        session.game._forced = ['R']
+        rejected = session.submit_action(decision['decision_id'], {
+            'choice': 'special_reroll', 'ability_card_id': 'C07',
+            'die_index': 1})
+        self.assertFalse(rejected['ok'])
+        self.assertIn('C07', session.game.hand)
+        accepted = session.submit_action(decision['decision_id'], {
+            'choice': 'special_reroll', 'ability_card_id': 'C07',
+            'die_index': 0})
+        self.assertTrue(accepted['ok'])
+        self.assertEqual(session.game.dice[0], 'R')
+        self.assertNotIn('C07', session.game.hand)
 
     def test_special_reroll_keeps_normal_budget_and_stale_id_is_rejected(self):
         session, decision = self._session_at_post_roll()
@@ -1857,6 +1904,7 @@ class TestUnifiedPostRollController(unittest.TestCase):
 
     def test_ye03_market_view_uses_unambiguous_reroll_round_field(self):
         session, decision = self._session_at_post_roll()
+        session.game.hand.remove('C06')
         session.game.market.append('YE-03')
         decision = session.current_decision()
         entry = next(o for o in decision['current_opportunities']
@@ -1866,6 +1914,7 @@ class TestUnifiedPostRollController(unittest.TestCase):
 
     def test_ye03_post_roll_ability_entry_states_reroll_round_not_turn(self):
         session, decision = self._session_at_post_roll()
+        session.game.hand.remove('C06')
         session.game.hand.append('YE-03')
         decision = session.current_decision()
         self.assertEqual(decision['extra_reroll_card_ids'], ['YE-03'])
@@ -1891,7 +1940,7 @@ class TestRuntimeFatePreview(unittest.TestCase):
         second = session.submit_action(first['decision_id'], {
             'card_id': 'C12'})['decision']
         session.game._forced = ['GL', 'BL', 'H', 'K']
-        session.submit_action(second['decision_id'], {'card_id': 'C09'})
+        session.submit_action(second['decision_id'], {'card_id': 'C06'})
         session.game.turn = 3
         session.game.fate_market = ['F01', 'F07']
         return session
@@ -1909,7 +1958,7 @@ class TestRuntimeFatePreview(unittest.TestCase):
             'card_id': 'C12'})['decision']
         session.game._forced = ['H', 'K', 'R', 'M']
         decision = session.submit_action(second['decision_id'], {
-            'card_id': 'C09'})['decision']
+            'card_id': 'C06'})['decision']
         self.assertFalse(session.game.fate_window())
         self.assertTrue(all(card['type'] != 'F'
                             for card in decision['current_opportunities']))
@@ -2052,7 +2101,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
                                        {'card_id': 'C12'})['decision']
         session.game._forced = list(dice)
         done = session.submit_action(second['decision_id'],
-                                     {'card_id': 'C09'})['decision']
+                                     {'card_id': 'C06'})['decision']
         if market is not None:
             session.game.market = list(market)
             session.game.market_entry = {
@@ -2109,7 +2158,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
 
         self.assertEqual(done['childhood_cards'], [
             entry('C12', 'held'),
-            entry('C09', 'available'),
+            entry('C06', 'available'),
             entry('C07', 'available'),
         ])
         self.assertNotIn('childhood_draft_result', done)
@@ -2129,52 +2178,32 @@ class TestRuntimeLongTermView(unittest.TestCase):
                          session.game.childhood_kept)
 
     def test_spectator_childhood_history_marks_consumed_card_used(self):
-        session, post = self.drafted_session(
-            ['H', 'H', 'BL', 'BL'], market=['YH-01', 'YK-01'],
-            extra_hand=['C07'])
-        ready = session.submit_action(
-            post['decision_id'], {'choice': 'proceed_to_purchase'})['decision']
-        plan = next(p for p in session._purchase_plan_cache
-                    if p['card_ids'] == ['YH-01'] and p['discounts_used'])
-        stage = session.submit_action(ready['decision_id'], {
-            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})
-        result = session.submit_action(stage['decision']['decision_id'],
-                                       {'plan_id': plan['plan_id']})
-        final = session.submit_action(result['decision']['decision_id'],
-                                      {'placement': 'top'})
+        session, post = self.drafted_session(['H', 'H', 'BL', 'BL'])
+        session.game._forced = ['K']
+        final = session.submit_action(post['decision_id'], {
+            'choice': 'special_reroll', 'ability_card_id': 'C07',
+            'die_index': 0})
+        self.assertTrue(final['ok'])
         history = {item['card_id']: item['status'] for item in
                    session.spectator_snapshot()['childhood_cards']}
         self.assertEqual(history['C07'], 'used')
         self.assertEqual(set(history), set(session.game.childhood_kept))
 
     def test_childhood_card_status_tracks_consumption(self):
-        session, post = self.drafted_session(
-            ['H', 'H', 'BL', 'BL'], market=['YH-01', 'YK-01'],
-            extra_hand=['C07'])
-        ready = session.submit_action(
-            post['decision_id'], {'choice': 'proceed_to_purchase'})['decision']
-        plan = next(p for p in session._purchase_plan_cache
-                    if p['card_ids'] == ['YH-01'] and p['discounts_used'])
-        stage = session.submit_action(ready['decision_id'], {
-            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})
-        self.assertTrue(stage['ok'])
-        self.assertIn('selected_purchase_target', stage['decision'])
-        result = session.submit_action(stage['decision']['decision_id'],
-                                       {'plan_id': plan['plan_id']})
-        self.assertTrue(result['ok'])
-        placement = result['decision']
-        self.assertEqual(placement['kind'], 'placement_decision')
-        final = session.submit_action(placement['decision_id'],
-                                      {'placement': 'top'})
-        self.assertEqual(final['decision']['kind'], 'post_roll_decision')
+        session, post = self.drafted_session(['H', 'H', 'BL', 'BL'])
+        session.game._forced = ['K']
+        final = session.submit_action(post['decision_id'], {
+            'choice': 'special_reroll', 'ability_card_id': 'C07',
+            'die_index': 0})
+        self.assertTrue(final['ok'])
         # Payload Slim v1：已消耗的 C07 不再重复展示
         self.assertEqual(self.childhood_status(final['decision']),
-                         {'C12': 'held', 'C09': 'available'})
+                         {'C12': 'held', 'C06': 'available'})
 
     def test_abebe_status_reflects_held_and_used(self):
         session, post = self.drafted_session(['BL', 'BL', 'H', 'K'])
         self.assertEqual(self.childhood_status(post),
-                         {'C12': 'held', 'C09': 'available',
+                         {'C12': 'held', 'C06': 'available',
                           'C07': 'available'})
         rerolled = session.submit_action(
             post['decision_id'],
@@ -2182,7 +2211,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
         self.assertTrue(rerolled['ok'])
         self.assertTrue(session.game.abebe_used)
         self.assertEqual(self.childhood_status(rerolled['decision']),
-                         {'C12': 'used', 'C09': 'available',
+                         {'C12': 'used', 'C06': 'available',
                           'C07': 'available'})
 
     def test_adult_key_decisions_keep_life_goals_visible(self):
@@ -2193,7 +2222,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
         self.assertEqual([g['id'] for g in ready['life_goals']], [1, 2])
         self.assertTrue(all('scoring_rule' in g for g in ready['life_goals']))
         self.assertEqual(self.childhood_status(ready),
-                         {'C12': 'held', 'C09': 'available',
+                         {'C12': 'held', 'C06': 'available',
                           'C07': 'available'})
 
         session2 = GameSession(seed=19, shuffle=False, forced_goals=[1, 2])
@@ -2257,7 +2286,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
 
     def test_debuff_protection_decision_exposes_long_term_view(self):
         session, post = self.drafted_session(
-            ['H', 'H', 'BL', 'BL'], market=['YH-01'], extra_hand=['C06'])
+            ['H', 'H', 'BL', 'BL'], market=['YH-01'], extra_hand=['C08'])
         session.game.stable_pool = Counter({'BL': 1})
         session.game.bad_luck_accumulator = 3
         ready = session.submit_action(
@@ -2280,7 +2309,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
         self.assertTrue(all('scoring_rule' in g
                             for g in protection['life_goals']))
         self.assertEqual(self.childhood_status(protection),
-                         {'C12': 'held', 'C09': 'available',
+                         {'C12': 'held', 'C06': 'available',
                           'C07': 'available'})
 
     def test_placement_decision_exposes_long_term_view(self):
@@ -2306,7 +2335,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
         self.assertTrue(all('scoring_rule' in g
                             for g in placement['life_goals']))
         self.assertEqual(self.childhood_status(placement),
-                         {'C12': 'held', 'C09': 'available',
+                         {'C12': 'held', 'C06': 'available',
                           'C07': 'available'})
 
     def test_maintenance_decision_exposes_long_term_view(self):
@@ -2327,7 +2356,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
         self.assertTrue(all('scoring_rule' in g
                             for g in decision['life_goals']))
         self.assertEqual(self.childhood_status(decision),
-                         {'C12': 'held', 'C09': 'available',
+                         {'C12': 'held', 'C06': 'available',
                           'C07': 'available'})
 
     def test_market_protection_decision_exposes_long_term_view(self):
@@ -2348,7 +2377,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
         self.assertTrue(all('scoring_rule' in g
                             for g in decision['life_goals']))
         self.assertEqual(self.childhood_status(decision),
-                         {'C12': 'held', 'C09': 'available',
+                         {'C12': 'held', 'C06': 'available',
                           'C07': 'available'})
 
     def test_lg_score_results_unchanged_by_shared_rule_source(self):
@@ -2404,6 +2433,8 @@ class TestChildhoodDraftPhaseView(unittest.TestCase):
         d2 = session.current_decision()
         session.submit_action(d2['decision_id'], {'card_id': 'C06'})
         d3 = session.current_decision()
+        if d3['kind'] == 'pre_roll_decision':
+            d3 = session.submit_action(d3['decision_id'], {})['decision']
         self.assertEqual(d3['kind'], 'post_roll_decision')
         # Payload Slim v1：draft 溯源不再重复下发；仍可用牌自带 CARDS 派生效果
         self.assertNotIn('childhood_draft_result', d3)
@@ -2461,13 +2492,13 @@ class TestPreviousTurnResultGating(unittest.TestCase):
 
     def test_pre_roll_used_ability_single_carrier(self):
         session, decision = self.turn2_session(
-            stacks=[('H', ['YH-02'])], hand=['C11'])
+            stacks=[('H', ['YH-02'])], hand=['C05'])
         self.assertEqual(decision['previous_turn_result']['completed_turn'], 1)
         result = session.submit_action(decision['decision_id'],
-                                       {'use_hand_card_ids': ['C11']})
+                                       {'use_hand_card_ids': ['C05']})
         rolled = result['decision']
         self.assertEqual(rolled['kind'], 'post_roll_decision')
-        # C11 已消耗使 _pre_roll_has_choices 变 False，
+        # C05 已消耗使 _pre_roll_has_choices 变 False，
         # used_card_ids 交集保证仍判定为 surfaced，不重复携带。
         self.assertNotIn('previous_turn_result', rolled)
         self.assertEqual(session.current_decision(), rolled)
@@ -2495,9 +2526,9 @@ class TestPreviousTurnResultGating(unittest.TestCase):
 
     def test_purchase_layers_do_not_repeat_after_post_roll(self):
         session, decision = self.turn2_session(
-            hand=['C07'], forced=['H', 'H', 'K', 'M'])
-        session.game.market = ['YH-01', 'YK-01']
-        session.game.market_entry = {'YH-01': 2, 'YK-01': 2}
+            hand=['C03'], forced=['M', 'M', 'M', 'K'])
+        session.game.market = ['YP-01', 'YK-01']
+        session.game.market_entry = {'YP-01': 2, 'YK-01': 2}
         self.assertIn('previous_turn_result', decision)
         ready = session.submit_action(
             decision['decision_id'],
@@ -2505,7 +2536,7 @@ class TestPreviousTurnResultGating(unittest.TestCase):
         self.assertEqual(ready['kind'], 'purchase_ready')
         self.assertNotIn('previous_turn_result', ready)
         second = session.submit_action(ready['decision_id'], {
-            'ordinary_card_ids': ['YH-01'], 'fate_card_id': None})['decision']
+            'ordinary_card_ids': ['YP-01'], 'fate_card_id': None})['decision']
         self.assertIn('selected_purchase_target', second)
         self.assertNotIn('previous_turn_result', second)
 
@@ -2808,7 +2839,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
                                        {'card_id': 'C12'})['decision']
         session.game._forced = list(dice)
         post = session.submit_action(second['decision_id'],
-                                     {'card_id': 'C09'})['decision']
+                                     {'card_id': 'C06'})['decision']
         if market is not None:
             session.game.market = list(market)
             session.game.market_entry = {
@@ -2861,23 +2892,23 @@ class TestMH02DebuffProtection(unittest.TestCase):
         game = self.make_engine_game(pool={'BL': 3})
         # 无任何保护
         self.assertEqual(game.debuff_cancel_options(), [])
-        # 仅 C06
-        game.hand = ['C06']
+        # 仅 C08
+        game.hand = ['C08']
         self.assertEqual(game.debuff_cancel_options(),
-                         [{'cid': 'C06', 'source': 'hand'}])
-        # 双选（C06 在前，active MH-02 在后）
+                         [{'cid': 'C08', 'source': 'hand'}])
+        # 双选（C08 在前，active MH-02 在后）
         game.cv['H'] = ['MH-02']
         self.assertEqual([o['cid'] for o in game.debuff_cancel_options()],
-                         ['C06', 'MH-02'])
-        # MH-02 已用：只剩 C06
+                         ['C08', 'MH-02'])
+        # MH-02 已用：只剩 C08
         game.used_once_cards = {'MH-02'}
         self.assertEqual([o['cid'] for o in game.debuff_cancel_options()],
-                         ['C06'])
-        # MH-02 被顶替（非 active）：只剩 C06
+                         ['C08'])
+        # MH-02 被顶替（非 active）：只剩 C08
         game.used_once_cards = set()
         game.cv['H'] = ['MH-02', 'OH-03']
         self.assertEqual([o['cid'] for o in game.debuff_cancel_options()],
-                         ['C06'])
+                         ['C08'])
         # 牌库空：一律不提供（正式规则修正）
         game.debuff_deck = []
         game.cv['H'] = ['MH-02']
@@ -2895,14 +2926,14 @@ class TestMH02DebuffProtection(unittest.TestCase):
                          [o['cid'] for o in game.debuff_cancel_options()])
         self.assertFalse(game.consume_debuff_cancel('MH-02'))
 
-    def test_c06_consume_path_differs_from_mh02(self):
-        game = self.make_engine_game(hand=['C06'],
+    def test_c08_consume_path_differs_from_mh02(self):
+        game = self.make_engine_game(hand=['C08'],
                                      stacks=[('H', ['MH-02'])],
                                      pool={'BL': 3})
-        uses_before = game.stats.game['childhood_uses']['C06']
-        self.assertTrue(game.consume_debuff_cancel('C06'))
-        self.assertNotIn('C06', game.hand)
-        self.assertEqual(game.stats.game['childhood_uses']['C06'],
+        uses_before = game.stats.game['childhood_uses']['C08']
+        self.assertTrue(game.consume_debuff_cancel('C08'))
+        self.assertNotIn('C08', game.hand)
+        self.assertEqual(game.stats.game['childhood_uses']['C08'],
                          uses_before + 1)
         self.assertNotIn('MH-02', game.used_once_cards)
         # 非法 cid 无副作用
@@ -2910,7 +2941,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
         self.assertEqual(game.stats.game['debuff_cancelled'], 1)
 
     def test_cancel_means_no_draw_no_experience_no_final_count(self):
-        game = self.make_engine_game(hand=['C06'],
+        game = self.make_engine_game(hand=['C08'],
                                      stacks=[('H', ['MH-02'])],
                                      deck=['D01', 'D02'],
                                      bad_luck=5)
@@ -2924,14 +2955,14 @@ class TestMH02DebuffProtection(unittest.TestCase):
         self.assertEqual(game.bad_luck_accumulator, 0)
 
     def test_deck_empty_skips_protection_without_consumption(self):
-        game = self.make_engine_game(hand=['C06'],
+        game = self.make_engine_game(hand=['C08'],
                                      stacks=[('H', ['MH-02'])],
                                      deck=[], bad_luck=5)
-        self.assertIsNone(game.resolve_runtime_debuff(cancel_cid='C06'))
-        self.assertIn('C06', game.hand)
+        self.assertIsNone(game.resolve_runtime_debuff(cancel_cid='C08'))
+        self.assertIn('C08', game.hand)
         self.assertNotIn('MH-02', game.used_once_cards)
         self.assertEqual(game.resolve_runtime_debuff(), 'empty')
-        self.assertIn('C06', game.hand)
+        self.assertIn('C08', game.hand)
         self.assertIsNone(game.current_debuff)
         self.assertEqual(game.stats.run['debuff_empty_triggers'], 1)
         self.assertEqual(game.bad_luck_accumulator, 0)
@@ -2944,12 +2975,12 @@ class TestMH02DebuffProtection(unittest.TestCase):
         self.assertEqual(game.debuff_deck, [])
 
     def test_invalid_cancel_cid_is_rejected_before_trigger_record(self):
-        game = self.make_engine_game(hand=['C06'], deck=['D01'],
+        game = self.make_engine_game(hand=['C08'], deck=['D01'],
                                      bad_luck=5)
         triggers_before = game.stats.game['debuff_triggers']
         self.assertIsNone(game.resolve_runtime_debuff(cancel_cid='C99'))
         self.assertEqual(game.stats.game['debuff_triggers'], triggers_before)
-        self.assertIn('C06', game.hand)
+        self.assertIn('C08', game.hand)
         self.assertEqual(game.debuff_deck, ['D01'])
 
     # ---------- 模拟器对齐：_debuff_check 走共享正式语义 ----------
@@ -2965,29 +2996,29 @@ class TestMH02DebuffProtection(unittest.TestCase):
         self.assertEqual(game.scoring_counts()['debuff_count'], 0)
 
     def test_simulator_debuff_check_skips_protection_on_empty_deck(self):
-        game = self.make_engine_game(hand=['C06'],
+        game = self.make_engine_game(hand=['C08'],
                                      stacks=[('H', ['MH-02'])],
                                      deck=[], bad_luck=5)
         game._debuff_check()
         self.assertEqual(game.used_once_cards, set())
-        self.assertIn('C06', game.hand)
+        self.assertIn('C08', game.hand)
         self.assertIsNone(game.current_debuff)
         self.assertEqual(game.stats.run['debuff_empty_triggers'], 1)
 
     # ---------- Runtime：决策协议 ----------
 
     def test_runtime_both_options_require_explicit_source(self):
-        session, ready = self.triggered_session(extra_hand=['C06'],
+        session, ready = self.triggered_session(extra_hand=['C08'],
                                                 stable={'BL': 1})
         result = self.submit_plan(session, ready,
                                   self.find_plan(session, ('YH-01',)))
         protection = result['decision']
         self.assertEqual(protection['kind'], 'debuff_protection_decision')
         self.assertEqual([c['id'] for c in protection['candidates']],
-                         ['C06', 'MH-02'])
+                         ['C08', 'MH-02'])
         self.assertEqual(protection['legal_actions'], [
             {'choice': 'skip'},
-            {'choice': 'use', 'source_card_id': 'C06'},
+            {'choice': 'use', 'source_card_id': 'C08'},
             {'choice': 'use', 'source_card_id': 'MH-02'}])
         # 双选时 bare use 必须被拒且无副作用
         before = (list(session.game.hand), set(session.game.used_once_cards),
@@ -2999,15 +3030,15 @@ class TestMH02DebuffProtection(unittest.TestCase):
                           set(session.game.used_once_cards),
                           list(session.game.debuff_deck)), before)
 
-    def test_runtime_explicit_c06_consumption(self):
-        session, ready = self.triggered_session(extra_hand=['C06'],
+    def test_runtime_explicit_c08_consumption(self):
+        session, ready = self.triggered_session(extra_hand=['C08'],
                                                 stable={'BL': 1})
         protection = self.submit_plan(
             session, ready, self.find_plan(session, ('YH-01',)))['decision']
         result = session.submit_action(protection['decision_id'], {
-            'choice': 'use', 'source_card_id': 'C06'})
+            'choice': 'use', 'source_card_id': 'C08'})
         self.assertTrue(result['ok'])
-        self.assertNotIn('C06', session.game.hand)
+        self.assertNotIn('C08', session.game.hand)
         self.assertEqual(session.game.used_once_cards, set())
         self.assertEqual(session.game.active('H'), 'MH-02')
         self.assertEqual(session.game.debuff_deck[0], 'D01')
@@ -3015,21 +3046,21 @@ class TestMH02DebuffProtection(unittest.TestCase):
         self.assertEqual(result['decision']['kind'], 'placement_decision')
 
     def test_runtime_explicit_mh02_consumption(self):
-        session, ready = self.triggered_session(extra_hand=['C06'],
+        session, ready = self.triggered_session(extra_hand=['C08'],
                                                 stable={'BL': 1})
         protection = self.submit_plan(
             session, ready, self.find_plan(session, ('YH-01',)))['decision']
         result = session.submit_action(protection['decision_id'], {
             'choice': 'use', 'source_card_id': 'MH-02'})
         self.assertTrue(result['ok'])
-        self.assertIn('C06', session.game.hand)
+        self.assertIn('C08', session.game.hand)
         self.assertIn('MH-02', session.game.used_once_cards)
         self.assertEqual(session.game.active('H'), 'MH-02')
         self.assertEqual(session.game.debuff_deck[0], 'D01')
         self.assertIsNone(session.game.current_debuff)
 
     def test_runtime_single_option_allows_legacy_bare_use(self):
-        # 无 C06、仅 MH-02：单候选兼容旧 bare use 协议
+        # 无 C08、仅 MH-02：单候选兼容旧 bare use 协议
         session, ready = self.triggered_session(stable={'BL': 1})
         protection = self.submit_plan(
             session, ready, self.find_plan(session, ('YH-01',)))['decision']
@@ -3042,7 +3073,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
         self.assertEqual(session.game.active('H'), 'MH-02')
 
     def test_runtime_deck_empty_no_decision_and_no_consumption(self):
-        session, ready = self.triggered_session(extra_hand=['C06'],
+        session, ready = self.triggered_session(extra_hand=['C08'],
                                                 stable={'BL': 1},
                                                 deck=[])
         result = self.submit_plan(session, ready,
@@ -3050,12 +3081,12 @@ class TestMH02DebuffProtection(unittest.TestCase):
         # 不打开保护决策：自动按"无 Debuff 可抽"继续，且不消耗任何保护
         self.assertEqual(result['decision']['kind'], 'placement_decision')
         self.assertIsNone(session.game.current_debuff)
-        self.assertIn('C06', session.game.hand)
+        self.assertIn('C08', session.game.hand)
         self.assertEqual(session.game.used_once_cards, set())
         self.assertEqual(session.game.stats.run['debuff_empty_triggers'], 1)
 
     def test_runtime_stale_and_wrong_source_are_side_effect_free(self):
-        session, ready = self.triggered_session(extra_hand=['C06'],
+        session, ready = self.triggered_session(extra_hand=['C08'],
                                                 stable={'BL': 1})
         protection = self.submit_plan(
             session, ready, self.find_plan(session, ('YH-01',)))['decision']
@@ -3067,11 +3098,11 @@ class TestMH02DebuffProtection(unittest.TestCase):
         self.assertEqual(result['error'], 'illegal_action')
         # 多余键
         result = session.submit_action(protection['decision_id'], {
-            'choice': 'use', 'source_card_id': 'C06', 'x': 1})
+            'choice': 'use', 'source_card_id': 'C08', 'x': 1})
         self.assertEqual(result['error'], 'illegal_action')
         # stale decision_id
         result = session.submit_action('debuff_protection_decision:9:9:9', {
-            'choice': 'use', 'source_card_id': 'C06'})
+            'choice': 'use', 'source_card_id': 'C08'})
         self.assertEqual(result['error'], 'stale_or_unknown_decision_id')
         self.assertEqual((list(session.game.hand),
                           set(session.game.used_once_cards),
@@ -3104,7 +3135,7 @@ class TestOH01DebuffShorten(unittest.TestCase):
                                        {'card_id': 'C12'})['decision']
         session.game._forced = ['H', 'H', 'BL', 'BL']
         post = session.submit_action(second['decision_id'],
-                                     {'card_id': 'C09'})['decision']
+                                     {'card_id': 'C06'})['decision']
         session.game.market = list(market)
         session.game.market_entry = {
             cid: session.game.turn for cid in session.game.market}
@@ -3211,13 +3242,13 @@ class TestOH01DebuffShorten(unittest.TestCase):
             game.stats.card('OH-01')['ability']['shorten_debuff'], 0)
 
     def test_cancel_path_excludes_shorten_window(self):
-        game = self.make_engine_game(hand=['C06'],
+        game = self.make_engine_game(hand=['C08'],
                                      stacks=[('H', ['OH-01'])],
                                      pool={'H': 2}, bad_luck=5)
         game._debuff_check()
         # 取消与缩短按触发互斥：取消后不抽牌、不支付、不缩短
         self.assertIsNone(game.current_debuff)
-        self.assertNotIn('C06', game.hand)
+        self.assertNotIn('C08', game.hand)
         self.assertEqual(game.pool.get('H', 0), 2)
         self.assertEqual(
             game.stats.card('OH-01')['ability']['shorten_debuff'], 0)
@@ -3604,9 +3635,9 @@ class TestJITPresentation(unittest.TestCase):
 
     # ---------- gl_bl 触发范围扩展 ----------
 
-    def test_gl_bl_fires_for_c05_before_any_gl_die(self):
-        # C05 在手（效果涉及 GL）、骰面无 GL/BL：仍应触发
-        session = self.make_turn_session(hand=['C05'],
+    def test_gl_bl_fires_for_c02_before_any_gl_die(self):
+        # C02 在手（效果涉及 GL）、骰面无 GL/BL：仍应触发
+        session = self.make_turn_session(hand=['C02'],
                                          dice=('H', 'K', 'R', 'M'))
         decision = self.post_roll(session)
         self.assertIn('gl_bl', decision['rule_hints'])
@@ -3627,26 +3658,25 @@ class TestJITPresentation(unittest.TestCase):
         decision = self.post_roll(session)
         self.assertIn('gl_bl', decision['rule_hints'])
 
-    def test_gl_bl_fires_for_c05_draft_candidate(self):
-        # seed 12：pick_1 候选即含 C05
-        session = GameSession(seed=12)
+    def test_gl_bl_fires_for_c02_draft_candidate(self):
+        session = GameSession(seed=5)
         decision = session.current_decision()
-        self.assertIn('C05', [c['id'] for c in decision['candidates']])
+        self.assertIn('C02', [c['id'] for c in decision['candidates']])
         self.assertIn('gl_bl', decision['rule_hints'])
         result = session.submit_action(decision['decision_id'],
-                                       {'card_id': 'C05'})
+                                       {'card_id': 'C02'})
         self.assertIn('gl_bl', session.seen_rule_hints)
         self.assertNotIn('gl_bl', result['decision'].get('rule_hints', {}))
 
-    def test_gl_bl_seen_not_repeated_for_c05(self):
-        session = self.make_turn_session(hand=['C05'],
+    def test_gl_bl_seen_not_repeated_for_c02(self):
+        session = self.make_turn_session(hand=['C02'],
                                          dice=('H', 'K', 'R', 'M'))
         first = self.post_roll(session)
         self.assertIn('gl_bl', first['rule_hints'])
         ok = session.submit_action(first['decision_id'],
                                    {'choice': 'proceed_to_purchase'})
         self.assertIn('gl_bl', session.seen_rule_hints)
-        # 已 seen：C05 仍在手也不重复
+        # 已 seen：C02 仍在手也不重复
         self.assertNotIn('gl_bl', ok['decision'].get('rule_hints', {}))
 
     def test_gl_bl_absent_when_nothing_gl_bl_visible(self):
@@ -3658,28 +3688,21 @@ class TestJITPresentation(unittest.TestCase):
 
     # ---------- L1 支付 provenance ----------
 
-    def test_l1_payment_provenance_gl_free_with_c05(self):
-        # 复现 seed 20260914 第 1 回合：2 骰 GL + C05 临时 GL → 3GL 免费取得
-        session = GameSession(seed=20260914)
-        first = session.current_decision()
-        session.submit_action(first['decision_id'], {'card_id': 'C10'})
-        second = session.current_decision()
-        session.submit_action(second['decision_id'], {'card_id': 'C09'})
-        d = session.current_decision()
-        self.assertEqual(list(d['dice']), ['H', 'BL', 'M', 'M'])
-        r = session.submit_action(d['decision_id'],
-                                  {'choice': 'normal_reroll', 'indices': [0, 2, 3]})
-        d = r['decision']
-        r = session.submit_action(d['decision_id'],
-                                  {'choice': 'normal_reroll', 'indices': [0, 2, 3]})
-        ready = r['decision']
+    def test_l1_payment_provenance_gl_free_with_c02(self):
+        # 2 骰 GL + C02 临时 GL → 3GL 免费取得。
+        session = self.make_turn_session(hand=['C02'],
+                                         dice=('GL', 'GL', 'H', 'K'),
+                                         market_entry={'YW-03': 1})
+        session.game.market = ['YW-03']
+        ready = session.submit_action(self.post_roll(session)['decision_id'],
+                                      {'choice': 'proceed_to_purchase'})['decision']
         self.assertEqual(ready['kind'], 'purchase_ready')
         targets = {tuple(t['ordinary_card_ids']): t
                    for t in ready['purchase_targets']}
         yw03 = targets[('YW-03',)]
         self.assertEqual(yw03['payment_method'], 'gl_free_acquisition')
         self.assertIn('3 GL 免费取得', yw03['payment_summary'])
-        self.assertIn('C05', yw03['payment_summary'])
+        self.assertIn('C02', yw03['payment_summary'])
 
 class TestSpectatorSnapshot(unittest.TestCase):
     def make_session(self):
@@ -3810,7 +3833,7 @@ class TestSpectatorDiceRollRevision(unittest.TestCase):
         second = session.submit_action(first['decision_id'], {
             'card_id': 'C12'})['decision']
         session.game._forced = list(dice) + ['H'] * 20
-        result = session.submit_action(second['decision_id'], {'card_id': 'C09'})
+        result = session.submit_action(second['decision_id'], {'card_id': 'C06'})
         self.assertTrue(result['ok'])
         return session, result['decision']
 
@@ -3822,7 +3845,7 @@ class TestSpectatorDiceRollRevision(unittest.TestCase):
         second = session.submit_action(first['decision_id'], {
             'card_id': 'C12'})['decision']
         session.game._forced = ['H', 'K', 'R', 'M']
-        result = session.submit_action(second['decision_id'], {'card_id': 'C09'})
+        result = session.submit_action(second['decision_id'], {'card_id': 'C06'})
 
         self.assertTrue(result['ok'])
         self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 1)
@@ -3867,7 +3890,7 @@ class TestSpectatorDiceRollRevision(unittest.TestCase):
         self.assertEqual(session.game.dice[0], 'H')
         self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 1)
 
-    def test_special_reroll_and_c11_added_dice_each_increment_once(self):
+    def test_special_reroll_and_c05_added_dice_each_increment_once(self):
         session, decision = self._post_roll_session()
         session.game.cv['K'] = ['MK-02']
         session.game._forced = ['H']
@@ -3879,14 +3902,14 @@ class TestSpectatorDiceRollRevision(unittest.TestCase):
         self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 2)
 
         session, decision = self._post_roll_session()
-        session.game.hand.append('C11')
+        session.game.hand.append('C05')
         session.game._forced = ['H', 'K']
         result = session.submit_action(decision['decision_id'], {
             'choice': 'normal_reroll', 'indices': [],
-            'use_temp_dice_card_id': 'C11'})
+            'use_temp_dice_card_id': 'C05'})
 
         self.assertTrue(result['ok'])
-        self.assertEqual(len(session.game.dice), 6)
+        self.assertEqual(len(session.game.dice), 5)
         self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 2)
 
 
@@ -3898,7 +3921,7 @@ class TestSpectatorRecentEvents(unittest.TestCase):
             'card_id': 'C12'})['decision']
         session.game._forced = ['H', 'K', 'R', 'M']
         post_roll = session.submit_action(second['decision_id'], {
-            'card_id': 'C09'})['decision']
+            'card_id': 'C06'})['decision']
         return session, post_roll
 
     def test_game_started_snapshot_copy_and_bounded_monotonic_buffer(self):
@@ -3969,7 +3992,7 @@ class TestSpectatorRecentEvents(unittest.TestCase):
             'card_id': 'C12'})['decision']
         session.game._forced = ['H', 'H', 'BL', 'BL']
         post_roll = session.submit_action(second['decision_id'], {
-            'card_id': 'C09'})['decision']
+            'card_id': 'C06'})['decision']
         session.game.market = ['YH-01']
         session.game.market_entry = {'YH-01': session.game.turn}
         ready = session.submit_action(post_roll['decision_id'], {
@@ -3993,7 +4016,7 @@ class TestSpectatorRecentEvents(unittest.TestCase):
         second = fate_session.submit_action(first['decision_id'], {
             'card_id': 'C12'})['decision']
         fate_session.game._forced = ['GL', 'BL', 'H', 'K']
-        fate_session.submit_action(second['decision_id'], {'card_id': 'C09'})
+        fate_session.submit_action(second['decision_id'], {'card_id': 'C06'})
         fate_session.game.turn = 3
         fate_session.game.fate_market = ['F07']
         fate_session._enter_purchase_ready()
@@ -4013,7 +4036,7 @@ class TestSpectatorRecentEvents(unittest.TestCase):
             'card_id': 'C12'})['decision']
         immediate_session.game._forced = ['GL', 'BL', 'H', 'K']
         immediate_session.submit_action(second['decision_id'], {
-            'card_id': 'C09'})
+            'card_id': 'C06'})
         immediate_session.game.turn = 3
         immediate_session.game.fate_market = ['F01']
         immediate_session.game.cv['H'] = ['YH-01']
@@ -4135,7 +4158,8 @@ class TestCardCatalog(unittest.TestCase):
         self.assertEqual(set(self.by_id['YE-01']['details']), {'temp_res'})
         self.assertEqual(set(self.by_id['YE-03']['details']),
                          {'extra_reroll_rounds'})
-        self.assertEqual(set(self.by_id['C05']['details']), {'temp_gl'})
+        self.assertEqual(set(self.by_id['C02']['details']), {'temp_gl'})
+        self.assertEqual(set(self.by_id['C05']['details']), {'temp_dice'})
         self.assertEqual(set(self.by_id['C12']['details']), {'abebe'})
         self.assertEqual(set(self.by_id['D01']['details']), {'extra_cost'})
         self.assertEqual(set(self.by_id['D09']['details']), {'block_type'})

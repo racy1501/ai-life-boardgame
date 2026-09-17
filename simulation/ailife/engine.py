@@ -1087,7 +1087,7 @@ class Game:
         """
         base_pool, wildcard_count = self.purchase_payment_resources(pool_override)
         # 与 Simulator 的购买求解共用同一支付来源：允许使用的手牌
-        # Childhood 临时资源、C05 GL 及 YE-01/YE-02 临时资源都在这里。
+        # 童年临时资源、童年临时 GL 及 YE-01/YE-02 临时资源都在这里。
         temps = self._temps_available()
         discounts = []
         for cid in self.hand:

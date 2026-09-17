@@ -20,14 +20,14 @@ effect primitive 字段约定：
   upkeep_discount: {'sym','reduce'} MH-01：付持续成本时该符号需求 -1（若成本包含）
   upkeep_sub     : {'from','to'}    OH-05/OR-02：付持续成本时 1 符号替代另 1 符号
   temp_res       : (sym, n)         Event/童年：本次结算临时资源
-  temp_gl        : int              童年 C05：本次购买结算临时 GL
+  temp_gl        : int              童年：本次购买结算临时 GL
   temp_dice      : int              临时额外骰
-  extra_reroll_rounds : int         本回合额外 1 轮正常重掷（仅 YE-03）
-  protect_market : True             YE-04 市场保护
+  extra_reroll_rounds : int         本回合额外 1 轮正常重掷
+  protect_market : True             市场保护
   upkeep_reduce  : True             ME-01 持续成本临时减免
   pre_cancel_debuff : True          事前取消本回合 Debuff 触发
   cancel_debuff  : True             达到阈值后取消一次 Debuff 触发
-  discount_type  : 'H'/'K'/'R'/'P'  童年 C07-C10 类别购买折扣
+  discount_type  : 'H'/'K'/'R'/'P'  童年类别购买折扣
   abebe          : True             C12 特殊童年物
 """
 
@@ -154,17 +154,17 @@ EVENTS = [
 ]
 
 CHILDHOOD = [
-    _mk('C01', '压岁钱', 'C', None, {}, temp_res=('M', 1)),
-    _mk('C02', '爱问为什么', 'C', None, {}, temp_res=('K', 1)),
-    _mk('C03', '放学一起走', 'C', None, {}, temp_res=('R', 1)),
-    _mk('C04', '玩到天黑', 'C', None, {}, temp_res=('H', 1)),
-    _mk('C05', '抽到隐藏款', 'C', None, {}, temp_gl=1),
-    _mk('C06', '有人来接', 'C', None, {}, cancel_debuff=True),
-    _mk('C07', '第一次学游泳', 'C', None, {}, discount_type='H'),
-    _mk('C08', '借书证', 'C', None, {}, discount_type='K'),
-    _mk('C09', '夏令营', 'C', None, {}, discount_type='R'),
-    _mk('C10', '我自己选的', 'C', None, {}, discount_type='P'),
-    _mk('C11', '今天没作业', 'C', None, {}, temp_dice=2),
+    _mk('C01', '零钱罐', 'C', None, {}, temp_res=('M', 1)),
+    _mk('C02', '幸运贴纸', 'C', None, {}, temp_gl=1),
+    _mk('C03', '收藏册', 'C', None, {}, discount_type='P'),
+    _mk('C04', '一起回家', 'C', None, {}, temp_res=('R', 1)),
+    _mk('C05', '再玩五分钟', 'C', None, {}, temp_dice=1),
+    _mk('C06', '再来一次', 'C', None, {}, extra_reroll_rounds=1),
+    _mk('C07', '橡皮擦', 'C', None, {}, reroll={'filter': 'non_bl'}),
+    _mk('C08', '紧急联系人', 'C', None, {}, cancel_debuff=True),
+    _mk('C09', '今天请假', 'C', None, {}, pre_cancel_debuff=True),
+    _mk('C10', '先别收走它', 'C', None, {}, protect_market=True),
+    _mk('C11', '借来的笔记', 'C', None, {}, temp_res=('K', 1)),
     _mk('C12', '阿贝贝', 'C', None, {}, abebe=True),
 ]
 

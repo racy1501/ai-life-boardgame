@@ -226,10 +226,10 @@ class TestGLTake(unittest.TestCase):
         g.turn = 2
         set_market(g, ['YP-01'])
         g.pool = Counter({'GL': 2})
-        g.hand = ['C05']
+        g.hand = ['C02']
         plan = g.try_acquire(('YP-01',))
         self.assertIsNotNone(plan)
-        self.assertEqual(plan['temps_used'], ['C05'])
+        self.assertEqual(plan['temps_used'], ['C02'])
 
     def test_gl_pay_for_gl_cost(self):
         g = make_game()
@@ -612,10 +612,10 @@ class TestPurchasesAndEvents(unittest.TestCase):
         g.turn = 2
         set_market(g, ['YP-01'])  # M2
         g.pool = Counter({'M': 1})
-        g.hand = ['C10']
+        g.hand = ['C03']
         plan = g.try_acquire(('YP-01',))
         self.assertIsNotNone(plan)
-        self.assertIn('C10', plan['discounts_used'])
+        self.assertIn('C03', plan['discounts_used'])
 
     def test_event_temp_in_purchase(self):
         g = make_game()

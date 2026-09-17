@@ -175,14 +175,14 @@ class TestDebuffV06(unittest.TestCase):
     def test_cancel_before_draw_changes_no_debuff_zone(self):
         g = make_v06()
         before = list(g.debuff_deck)
-        g.hand = ['C06']
-        g.strat.debuff_choice = {'cancel': 'C06'}
+        g.hand = ['C08']
+        g.strat.debuff_choice = {'cancel': 'C08'}
         g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertEqual(g.debuff_deck, before)
         self.assertIsNone(g.current_debuff)
         self.assertEqual(g.debuff_history, [])
-        self.assertNotIn('C06', g.hand)
+        self.assertNotIn('C08', g.hand)
 
     def test_mh02_cancels_once_and_me02_pre_cancel_consumes_without_draw(self):
         g = make_v06()
@@ -535,7 +535,7 @@ class TestFateV06(unittest.TestCase):
         g = make_v06()
         g.turn = 3
         activate_fate(g, 'F10')
-        g.hand = ['C05']
+        g.hand = ['C02']
         g.dice_gl_flexible = 1
         g.pool = Counter({'GL': 2})
         stable = g.try_acquire(('YR-03',))
@@ -546,12 +546,12 @@ class TestFateV06(unittest.TestCase):
         h = make_v06()
         h.turn = 3
         activate_fate(h, 'F10')
-        h.hand = ['C05']
+        h.hand = ['C02']
         h.dice_gl_flexible = 1
         h.pool = Counter({'GL': 1})
         temporary = h.try_acquire(('YR-03',))
         self.assertIsNotNone(temporary)
-        self.assertEqual(temporary['temps_used'], ['C05'])
+        self.assertEqual(temporary['temps_used'], ['C02'])
         self.assertEqual(temporary['wildcard_symbols'], ['R'])
 
     def test_f10_is_delayed_and_loses_effect_when_covered(self):
@@ -596,25 +596,25 @@ class TestFateV06(unittest.TestCase):
         g = make_v06()
         g.turn = 3
         g.fate_market = ['F01']
-        g.hand = ['C05']
+        g.hand = ['C02']
         g.pool = Counter({'GL': 1})
         plans = [p for p in g.enumerate_joint_purchase_plans()
                  if p['ordinary_card_ids'] == [] and p['fate_card_id'] == 'F01']
         self.assertEqual(len(plans), 2)
         self.assertEqual({tuple(p['consumed_childhood_card_ids']) for p in plans},
-                         {(), ('C05',)})
+                         {(), ('C02',)})
 
-    def test_c05_can_pay_fate_and_competes_with_three_gl_take(self):
+    def test_c02_can_pay_fate_and_competes_with_three_gl_take(self):
         g = make_v06()
         g.turn = 3
         g.market = ['YH-01']
         g.market_entry = {'YH-01': 0}
         g.fate_market = ['F01']
-        g.hand = ['C05']
+        g.hand = ['C02']
         g.pool = Counter({'GL': 2})
         fate_only = [p for p in g.enumerate_joint_purchase_plans()
                      if p['ordinary_card_ids'] == [] and p['fate_card_id'] == 'F01']
-        self.assertTrue(any('C05' in p['consumed_childhood_card_ids']
+        self.assertTrue(any('C02' in p['consumed_childhood_card_ids']
                             for p in fate_only))
         self.assertFalse(any(p['ordinary_card_ids'] == ['YH-01']
                              and p['fate_card_id'] == 'F01'
@@ -675,7 +675,7 @@ class TestFateV06(unittest.TestCase):
         g = make_v06()
         g.turn = 3
         g.fate_market = ['F01']
-        g.hand = ['C05']
+        g.hand = ['C02']
         g.pool = Counter({'GL': 1})
         generated = g.enumerate_joint_purchase_plans()
         generated_ids = {p['plan_id'] for p in generated}
@@ -688,7 +688,7 @@ class TestFateV06(unittest.TestCase):
         g = make_v06()
         g.turn = 3
         g.fate_market = ['F01']
-        g.hand = ['C05', 'YE-01']
+        g.hand = ['C02', 'YE-01']
         g.pool = Counter({'GL': 3, 'M': 1})
         before = deepcopy((g.market, g.fate_market, g.hand, g.pool,
                            g.fate_stack, g.rng.getstate()))
@@ -703,13 +703,13 @@ class TestFateV06(unittest.TestCase):
         g = make_v06()
         g.turn = 3
         g.fate_market = ['F01']
-        g.hand = ['C05']
+        g.hand = ['C02']
         g.pool = Counter()
         plan = g._joint_plan((), 'F01')
         with mock.patch('ailife.engine.solve_cost_all',
                         side_effect=AssertionError('solver called during execution')):
             self.assertTrue(g.execute_joint(((), 'F01'), plan))
-        self.assertNotIn('C05', g.hand)
+        self.assertNotIn('C02', g.hand)
         self.assertEqual(g.active_fate, 'F01')
 
     def test_execute_joint_pauses_f01_without_calling_strategy(self):
@@ -784,7 +784,7 @@ class TestFateV06(unittest.TestCase):
         g = make_v06()
         g.turn = 3
         g.fate_market = ['F01']
-        g.hand = ['C05']
+        g.hand = ['C02']
         g.pool = Counter()
         plan = deepcopy(g._joint_plan((), 'F01'))
         plan['remaining_resources'] = {'GL': 99}
@@ -939,8 +939,8 @@ class TestGoalsAndRegressionV06(unittest.TestCase):
         g.stats.game['event_buys']['YE-01'] = 1
         g.stats.game['event_uses']['YE-01'] = 1
         self.assertEqual(g.event_acquired_count(), 1)
-        g.hand = ['C06']
-        g.strat.debuff_choice = {'cancel': 'C06'}
+        g.hand = ['C08']
+        g.strat.debuff_choice = {'cancel': 'C08'}
         g.bad_luck_accumulator = 5
         g._debuff_check()
         self.assertEqual(g.debuff_experienced_count(), 0)

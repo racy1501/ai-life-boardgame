@@ -241,9 +241,7 @@ def _payment_source_parts(plan):
     if gl_free:
         parts.append('%s 以 3 GL 免费取得' % '、'.join(gl_free))
     for cid in plan.get('consumed_childhood_card_ids', []):
-        # 童年牌按正式机制分类：C01-C05 是临时资源（temp_res/temp_gl）；
-        # C07-C10 是一次性购买折扣（来源由 discounts_used 短句说明），
-        # C06 保护 / C11 额外骰 / C12 非一次性不构成购买资源来源，不产生短句。
+        # 童年牌按正式能力字段分类；仅 temp_res / temp_gl 在购买来源中产生短句。
         card = CARDS.get(cid) or {}
         if card.get('temp_res'):
             sym, n = card['temp_res']
@@ -271,8 +269,8 @@ def _payment_summary(plan):
     if spent:
         parts.append('支付 %s' % _res_text(sorted(spent.items())))
     # method 按 plan 结构字段分类，不按 consumed_childhood_card_ids 粗分类：
-    # C01-C05 与 C07-C10 同入 consumed 列表但机制不同。童年牌按 CARDS 机制
-    # 字段细分（与 _payment_source_parts 同一事实源）；C05 临时 GL 只流向
+    # consumed 列表可包含不同能力的童年牌，按 CARDS 字段细分
+    # （与 _payment_source_parts 同一事实源）；临时 GL 只流向
     # 3 GL 免费取得（命中 gl_free_acquisitions）或直接支付 GL 成本，后者单列。
     child_ids = plan.get('consumed_childhood_card_ids') or []
     child_temp_gl = [cid for cid in child_ids
