@@ -3399,6 +3399,24 @@ class TestJITPresentation(unittest.TestCase):
         # YH-02 上回合已在场：驻留期不重复说明
         self.assertNotIn('effect_summary', cards['YH-02'])
 
+    def test_c12_reroll_instruction_exposes_complete_action_shape(self):
+        session = self.make_turn_session(dice=('BL', 'H', 'K', 'M'), hand=('C12',))
+        session.game.abebe_held = True
+        decision = self.post_roll(session)
+        instruction = decision['action_instruction']
+        for text in ('normal_reroll', 'indices 是本次完整重掷集合',
+                     'c12_index 必须同时出现在 indices',
+                     '指向被冻结的 BL', '其他普通非 BL 骰',
+                     'special_reroll 不适用于 C12',
+                     '{"choice":"normal_reroll","indices":[0,2],"c12_index":0}'):
+            self.assertIn(text, instruction)
+        normal = next(action for action in decision['legal_actions']
+                      if action['choice'] == 'normal_reroll')
+        self.assertIn('c12_note', normal)
+        self.assertIn('c12_index 必须在 indices 中', normal['c12_note'])
+        self.assertIn('c12_reroll', decision['rule_hints'])
+        self.assertEqual(session.current_decision(), decision)
+
     def test_draft_candidates_and_random_third_carry_effects(self):
         # 自然 seed：目标即 [16, 9]，且 pick_1 候选 C10/C04/C07
         session = GameSession(seed=20260914)

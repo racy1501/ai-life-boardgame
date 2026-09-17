@@ -331,6 +331,11 @@ _RULE_HINTS = {
     'fate_active_slot':
         '生效中的 Fate 唯一：新取得的 Fate 会替换当前生效者（旧牌仍留在'
         '命运堆、计入 LG17 配对数）。Fate 一经取得永久有效。',
+    'c12_reroll':
+        'C12 阿贝贝仍使用 normal_reroll：indices 是本次完整重掷集合；使用 C12 时，'
+        'c12_index 必须同时出现在 indices 且指向一颗 BL。indices 可再包含其他普通非 BL 骰，'
+        '但不能包含其他 BL；special_reroll 不适用于 C12。例如：'
+        '{"choice":"normal_reroll","indices":[0,2],"c12_index":0}。',
 }
 
 
@@ -1037,6 +1042,9 @@ class GameSession:
                     'childhood_pick_1', 'childhood_pick_2') \
                 and self._gl_bl_visible(kind):
             keys.add('gl_bl')
+        if kind == 'post_roll_decision' and self.game.abebe_held \
+                and not self.game.abebe_used:
+            keys.add('c12_reroll')
         if kind == 'placement_decision':
             keys.add('placement')
         if kind == 'maintenance_decision':
@@ -1139,8 +1147,17 @@ class GameSession:
                 # 旧键名 extra_round 曾造成的"额外游戏回合"歧义。
                 'note': '为骰后阶段额外增加 %d 轮正常重掷'
                         '（normal reroll round），不是额外游戏回合'
-                        % extra_rounds,
+                % extra_rounds,
             })
+        c12_available = self.game.abebe_held and not self.game.abebe_used
+        normal_reroll_action = {
+            'choice': 'normal_reroll', 'requires': 'indices',
+            'optional': ['use_ye03', 'use_c11', 'c12_index'],
+        }
+        if c12_available:
+            normal_reroll_action['c12_note'] = (
+                '使用 C12 时：c12_index 必须在 indices 中并指向 BL；'
+                'indices 可同时包含其他普通非 BL 骰；special_reroll 不适用于 C12。')
         full_plans = self._legal_acquisition_plans(
             pool, cache=(kind == 'purchase_ready'))
         if kind == 'purchase_ready':
@@ -1192,8 +1209,7 @@ class GameSession:
                     compact_plans.append(compact)
             purchase_view = {'legal_acquisition_plans': compact_plans}
             legal_actions = [
-                {'choice': 'normal_reroll', 'requires': 'indices',
-                 'optional': ['use_ye03', 'use_c11', 'c12_index']},
+                normal_reroll_action,
                 {'choice': 'special_reroll', 'requires': ['ability_card_id',
                  'die_index'], 'optional': ['use_ye03']},
                 {'choice': 'proceed_to_purchase', 'optional': ['use_yk05']},
@@ -1226,6 +1242,13 @@ class GameSession:
             'pre_roll_effects_used': copy.deepcopy(self._pre_roll_effects_used),
             'current_debuff': self._debuff_summary(),
         }
+        if kind == 'post_roll_decision' and c12_available:
+            decision['action_instruction'] = (
+                'C12 使用 normal_reroll。indices 是本次完整重掷集合；'
+                'c12_index 必须同时出现在 indices 并指向被冻结的 BL；'
+                'indices 可包含其他普通非 BL 骰，但不能包含其他 BL；'
+                'special_reroll 不适用于 C12。完整示例：'
+                '{"choice":"normal_reroll","indices":[0,2],"c12_index":0}')
         hints = self._pending_rule_hints(kind)
         if hints:
             decision['rule_hints'] = hints
