@@ -172,15 +172,10 @@ class BaseStrategy:
         return max(allowed, key=lambda s: (score[s], s))
 
     def declare_pre_roll(self):
-        g = self.g
-        out = {}
-        out['ye05'] = 'YE-05' in g.hand
-        out['c11'] = 'C11' in g.hand
-        out['pre_cancel_debuff'] = g.find_hand_effect('pre_cancel_debuff')
-        return out
+        return {'hand_card_ids': self.g.pre_roll_hand_cards()}
 
-    def use_ye03(self):
-        return 'YE-03' in self.g.hand
+    def use_extra_reroll_card(self, candidates):
+        return candidates[0] if candidates else None
 
     def _target_costs(self):
         g = self.g
@@ -355,7 +350,7 @@ class BaseStrategy:
 
     def ye04_target(self):
         g = self.g
-        if 'YE-04' not in g.hand:
+        if not g.find_hand_effect('protect_market'):
             return None
         cands = [c for c in g.market
                  if c not in g.purchased_this_turn
@@ -377,12 +372,11 @@ class RandomLegal(BaseStrategy):
 
     def declare_pre_roll(self):
         r = self.g.rng.random
-        pre = self.g.find_hand_effect('pre_cancel_debuff')
-        return {'ye05': r() < 0.5, 'c11': r() < 0.5,
-                'pre_cancel_debuff': pre if pre and r() < 0.5 else None}
+        return {'hand_card_ids': [cid for cid in self.g.pre_roll_hand_cards()
+                                  if r() < 0.5]}
 
-    def use_ye03(self):
-        return self.g.rng.random() < 0.5
+    def use_extra_reroll_card(self, candidates):
+        return self.g.rng.choice(candidates) if candidates and self.g.rng.random() < 0.5 else None
 
     def choose_reroll(self, round_no, total_rounds):
         idxs = list(range(len(self.g.dice)))

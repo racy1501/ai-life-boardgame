@@ -27,7 +27,7 @@ CANONICAL_REROLL_KEY = 'remaining_normal_rerolls'
 # 下发 legal_actions，lockstep 的空 legal_actions 守卫会安全停走），因此
 # lockstep 测试到它为止。
 DIRECTLY_SUBMITTABLE_KINDS = (
-    'childhood_pick_1', 'childhood_pick_2', 'pre_roll_c11',
+    'childhood_pick_1', 'childhood_pick_2', 'pre_roll_decision',
     'purchase_ready', 'maintenance_decision', 'placement_decision',
     'debuff_protection_decision', 'market_protection_decision',
     'mh04_decision',

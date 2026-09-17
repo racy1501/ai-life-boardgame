@@ -95,17 +95,18 @@ class TestChildhoodRuntime(unittest.TestCase):
         session, second = self.finish_draft_with_c11()
         result = session.submit_action(second['decision_id'], {'card_id': 'C01'})
         self.assertTrue(result['ok'])
-        self.assertEqual(result['decision']['kind'], 'pre_roll_c11')
+        self.assertEqual(result['decision']['kind'], 'pre_roll_decision')
         self.assertIn('C11', session.game.hand)
-        self.assertEqual(result['decision']['legal_actions'],
-                         [{'choice': 'use'}, {'choice': 'skip'}])
+        self.assertEqual(result['decision']['available_pre_roll_cards'],
+                         [{'card_id': 'C11', 'name': CARDS['C11']['name'],
+                           'type': 'C'}])
 
-    def test_pre_roll_c11_carries_opening_long_term_view(self):
+    def test_pre_roll_hand_card_carries_opening_long_term_view(self):
         session, second = self.finish_draft_with_c11()
         result = session.submit_action(second['decision_id'],
                                        {'card_id': 'C01'})
         decision = result['decision']
-        self.assertEqual(decision['kind'], 'pre_roll_c11')
+        self.assertEqual(decision['kind'], 'pre_roll_decision')
         self.assertEqual([g['id'] for g in decision['life_goals']], [1, 2])
         self.assertEqual([c['card_id'] for c in decision['childhood_cards']],
                          ['C11', 'C01', 'C12'])
@@ -123,7 +124,8 @@ class TestChildhoodRuntime(unittest.TestCase):
         session.game._forced = ['H'] * 6
         pre_roll = session.submit_action(second['decision_id'],
                                          {'card_id': 'C01'})['decision']
-        result = session.submit_action(pre_roll['decision_id'], {'choice': 'use'})
+        result = session.submit_action(
+            pre_roll['decision_id'], {'use_hand_card_ids': ['C11']})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'post_roll_decision')
         self.assertNotIn('C11', session.game.hand)
@@ -136,7 +138,7 @@ class TestChildhoodRuntime(unittest.TestCase):
         session.game._forced = ['K'] * 4
         pre_roll = session.submit_action(second['decision_id'],
                                          {'card_id': 'C01'})['decision']
-        result = session.submit_action(pre_roll['decision_id'], {'choice': 'skip'})
+        result = session.submit_action(pre_roll['decision_id'], {})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'post_roll_decision')
         self.assertIn('C11', session.game.hand)
@@ -152,7 +154,7 @@ class TestChildhoodRuntime(unittest.TestCase):
         after = (list(session.game.hand), list(session.game.dice),
                  session.game.temp_dice, session.game.pre_roll_open)
         self.assertFalse(result['ok'])
-        self.assertEqual(result['error'], 'illegal_action')
+        self.assertEqual(result['error'], 'invalid_action')
         self.assertEqual(after, before)
 
     def test_reroll_view_marks_bad_luck_as_frozen(self):
@@ -246,11 +248,11 @@ class TestChildhoodRuntime(unittest.TestCase):
         session, second = self.finish_draft_with_c11()
         session.game._forced = ['K'] * 4
         pre = session.submit_action(second['decision_id'], {'card_id': 'C01'})
-        post = session.submit_action(pre['decision']['decision_id'], {'choice': 'skip'})
+        post = session.submit_action(pre['decision']['decision_id'], {})
         session.game._forced = ['R', 'M', 'GL']
         first = session.submit_action(
             post['decision']['decision_id'],
-            {'choice': 'reroll', 'indices': [0], 'use_c11': True},
+            {'choice': 'reroll', 'indices': [0], 'use_temp_dice_card_id': 'C11'},
         )
         self.assertTrue(first['ok'])
         self.assertNotIn('C11', session.game.hand)
@@ -259,14 +261,14 @@ class TestChildhoodRuntime(unittest.TestCase):
         session, second = self.finish_draft_with_c11()
         session.game._forced = ['K'] * 4
         pre = session.submit_action(second['decision_id'], {'card_id': 'C01'})
-        post = session.submit_action(pre['decision']['decision_id'], {'choice': 'skip'})
+        post = session.submit_action(pre['decision']['decision_id'], {})
         session.game._forced = ['H']
         first = session.submit_action(post['decision']['decision_id'],
                                       {'choice': 'reroll', 'indices': [0]})
         session.game._forced = ['R', 'M', 'GL']
         second = session.submit_action(
             first['decision']['decision_id'],
-            {'choice': 'reroll', 'indices': [1], 'use_c11': True},
+                                      {'choice': 'reroll', 'indices': [1], 'use_temp_dice_card_id': 'C11'},
         )
         self.assertTrue(second['ok'])
         self.assertNotIn('C11', session.game.hand)
@@ -1260,13 +1262,10 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         }
         return session, session.current_decision()
 
-    def submit_pre_roll(self, session, decision, flex=None, c11=False,
-                        ye05=False, me02=False):
+    def submit_pre_roll(self, session, decision, flex=None, hand_card_ids=()):
         return session.submit_action(decision['decision_id'], {
             'flex_resource_choices': flex or {},
-            'use_c11': c11,
-            'use_ye05': ye05,
-            'use_me02': me02,
+            'use_hand_card_ids': list(hand_card_ids),
         })
 
     def test_multiple_flex_cards_share_one_pre_roll_decision(self):
@@ -1303,7 +1302,8 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         session, decision = self.next_turn_session(
             stacks=[('H', ['YH-02'])], hand=['C11', 'YE-05'])
         self.assertEqual(decision['base_dice_count'], 5)
-        result = self.submit_pre_roll(session, decision, c11=True, ye05=True)
+        result = self.submit_pre_roll(
+            session, decision, hand_card_ids=['C11', 'YE-05'])
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['dice_count'], 7)
         self.assertNotIn('C11', session.game.hand)
@@ -1319,7 +1319,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_me02_arms_pre_debuff_cancel_and_d05_blocks_only_events(self):
         session, decision = self.next_turn_session(hand=['ME-02'])
-        result = self.submit_pre_roll(session, decision, me02=True)
+        result = self.submit_pre_roll(session, decision, hand_card_ids=['ME-02'])
         self.assertTrue(result['ok'])
         self.assertNotIn('ME-02', session.game.hand)
         self.assertEqual(session.game.pre_debuff_cancel, 'ME-02')
@@ -1332,7 +1332,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertEqual(decision['kind'], 'pre_roll_decision')
         self.assertEqual([c['card_id'] for c in decision['available_pre_roll_cards']],
                          ['C11'])
-        result = self.submit_pre_roll(blocked, decision, c11=True)
+        result = self.submit_pre_roll(blocked, decision, hand_card_ids=['C11'])
         self.assertTrue(result['ok'])
         self.assertIn('YE-05', blocked.game.hand)
         self.assertIn('ME-02', blocked.game.hand)
@@ -1358,12 +1358,12 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertEqual(result['decision']['stable_resources'],
                          {'K': 1, 'M': 3, 'R': 1})
 
-    def test_pre_roll_accepts_single_boolean_submission(self):
+    def test_pre_roll_accepts_single_hand_card_submission(self):
         session, decision = self.next_turn_session(
             stacks=[('H', ['YH-02'])], hand=['C11', 'YE-05'])
         session.game._forced = ['H'] * 20
-        result = session.submit_action(decision['decision_id'],
-                                       {'use_c11': True})
+        result = session.submit_action(
+            decision['decision_id'], {'use_hand_card_ids': ['C11']})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['kind'], 'post_roll_decision')
         self.assertEqual(result['decision']['dice_count'], 7)
@@ -1380,12 +1380,12 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertEqual(result['decision']['dice'], ['H', 'K', 'R', 'M'])
         self.assertIn('C11', session.game.hand)
 
-    def test_pre_roll_full_legacy_shape_still_accepted(self):
+    def test_pre_roll_accepts_multiple_hand_cards(self):
         session, decision = self.next_turn_session(
             stacks=[('H', ['YH-02'])], hand=['C11', 'YE-05'])
         session.game._forced = ['H'] * 20
-        result = self.submit_pre_roll(session, decision, {}, c11=True,
-                                      ye05=True, me02=False)
+        result = self.submit_pre_roll(
+            session, decision, {}, hand_card_ids=['C11', 'YE-05'])
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['dice_count'], 7)
         self.assertNotIn('C11', session.game.hand)
@@ -1395,9 +1395,10 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         # 有 flex 卡时，空 action / 缺 flex 选择 → illegal_action
         session, decision = self.next_turn_session(stacks=[('K', ['MK-04'])])
         before = self.snapshot(session)
-        for action in ({}, {'use_c11': True}, {'use_c11': 'yes'},
+        for action in ({}, {'use_hand_card_ids': ['C11']},
+                       {'use_hand_card_ids': 'C11'},
                        {'flex_resource_choices': {'MK-04': 'MONEY'}},
-                       {'use_c99': True}):
+                       {'use_hand_card_ids': ['C99']}):
             with self.subTest(action=action):
                 result = session.submit_action(decision['decision_id'], action)
                 self.assertFalse(result['ok'])
@@ -1817,14 +1818,14 @@ class TestUnifiedPostRollController(unittest.TestCase):
         session, decision = self._session_at_post_roll()
         session.game.hand.append('YE-03')
         decision = session.current_decision()
-        self.assertTrue(decision['ye03_available'])
+        self.assertEqual(decision['extra_reroll_card_ids'], ['YE-03'])
         result = session.submit_action(decision['decision_id'], {
-            'choice': 'normal_reroll', 'indices': [0], 'use_ye03': True,
-            'use_c11': False, 'c12_index': None})
+            'choice': 'normal_reroll', 'indices': [0],
+            'use_extra_reroll_card_id': 'YE-03'})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['normal_rerolls_remaining'], 2)
         self.assertNotIn('YE-03', session.game.hand)
-        self.assertFalse(result['decision']['ye03_available'])
+        self.assertEqual(result['decision']['extra_reroll_card_ids'], [])
 
     def test_special_reroll_keeps_normal_budget_and_stale_id_is_rejected(self):
         session, decision = self._session_at_post_roll()
@@ -1833,12 +1834,12 @@ class TestUnifiedPostRollController(unittest.TestCase):
         old_id = decision['decision_id']
         result = session.submit_action(old_id, {
             'choice': 'special_reroll', 'ability_card_id': 'MK-02',
-            'die_index': 0, 'use_ye03': False})
+            'die_index': 0})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['normal_rerolls_remaining'], 2)
         duplicate = session.submit_action(old_id, {
             'choice': 'special_reroll', 'ability_card_id': 'MK-02',
-            'die_index': 0, 'use_ye03': False})
+            'die_index': 0})
         self.assertFalse(duplicate['ok'])
         self.assertEqual(duplicate['error'], 'stale_or_unknown_decision_id')
 
@@ -1867,7 +1868,7 @@ class TestUnifiedPostRollController(unittest.TestCase):
         session, decision = self._session_at_post_roll()
         session.game.hand.append('YE-03')
         decision = session.current_decision()
-        self.assertTrue(decision['ye03_available'])
+        self.assertEqual(decision['extra_reroll_card_ids'], ['YE-03'])
         ability = next(a for a in decision['available_abilities']
                        if a['card_id'] == 'YE-03')
         self.assertEqual(ability['kind'], 'extra_normal_reroll_round')
@@ -1875,11 +1876,11 @@ class TestUnifiedPostRollController(unittest.TestCase):
         self.assertIn('正常重掷', ability['note'])
         self.assertIn('不是额外游戏回合', ability['note'])
         result = session.submit_action(decision['decision_id'], {
-            'choice': 'normal_reroll', 'indices': [0], 'use_ye03': True,
-            'use_c11': False, 'c12_index': None})
+            'choice': 'normal_reroll', 'indices': [0],
+            'use_extra_reroll_card_id': 'YE-03'})
         self.assertTrue(result['ok'])
         self.assertEqual(result['decision']['normal_rerolls_remaining'], 2)
-        self.assertFalse(result['decision']['ye03_available'])
+        self.assertEqual(result['decision']['extra_reroll_card_ids'], [])
         self.assertTrue(all(a['card_id'] != 'YE-03'
                             for a in result['decision']['available_abilities']))
 
@@ -2452,7 +2453,7 @@ class TestPreviousTurnResultGating(unittest.TestCase):
         self.assertEqual(decision['previous_turn_result']['completed_turn'], 1)
         result = session.submit_action(decision['decision_id'], {
             'flex_resource_choices': {'MK-04': 'K'},
-            'use_c11': False, 'use_ye05': False, 'use_me02': False})
+            'use_hand_card_ids': []})
         rolled = result['decision']
         self.assertEqual(rolled['kind'], 'post_roll_decision')
         self.assertNotIn('previous_turn_result', rolled)
@@ -2463,7 +2464,7 @@ class TestPreviousTurnResultGating(unittest.TestCase):
             stacks=[('H', ['YH-02'])], hand=['C11'])
         self.assertEqual(decision['previous_turn_result']['completed_turn'], 1)
         result = session.submit_action(decision['decision_id'],
-                                       {'use_c11': True})
+                                       {'use_hand_card_ids': ['C11']})
         rolled = result['decision']
         self.assertEqual(rolled['kind'], 'post_roll_decision')
         # C11 已消耗使 _pre_roll_has_choices 变 False，
@@ -3832,8 +3833,7 @@ class TestSpectatorDiceRollRevision(unittest.TestCase):
         session.game._forced = [before[0]]
 
         result = session.submit_action(decision['decision_id'], {
-            'choice': 'normal_reroll', 'indices': [0], 'use_ye03': False,
-            'use_c11': False, 'c12_index': None})
+            'choice': 'normal_reroll', 'indices': [0]})
 
         self.assertTrue(result['ok'])
         self.assertEqual(session.game.dice, before)
@@ -3842,8 +3842,7 @@ class TestSpectatorDiceRollRevision(unittest.TestCase):
     def test_rejected_reroll_does_not_increment(self):
         session, decision = self._post_roll_session()
         result = session.submit_action(decision['decision_id'], {
-            'choice': 'normal_reroll', 'indices': [99], 'use_ye03': False,
-            'use_c11': False, 'c12_index': None})
+            'choice': 'normal_reroll', 'indices': [99]})
 
         self.assertFalse(result['ok'])
         self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 1)
@@ -3874,7 +3873,7 @@ class TestSpectatorDiceRollRevision(unittest.TestCase):
         session.game._forced = ['H']
         result = session.submit_action(decision['decision_id'], {
             'choice': 'special_reroll', 'ability_card_id': 'MK-02',
-            'die_index': 0, 'use_ye03': False})
+            'die_index': 0})
 
         self.assertTrue(result['ok'])
         self.assertEqual(session.spectator_snapshot()['dice']['roll_revision'], 2)
@@ -3883,8 +3882,8 @@ class TestSpectatorDiceRollRevision(unittest.TestCase):
         session.game.hand.append('C11')
         session.game._forced = ['H', 'K']
         result = session.submit_action(decision['decision_id'], {
-            'choice': 'normal_reroll', 'indices': [], 'use_ye03': False,
-            'use_c11': True, 'c12_index': None})
+            'choice': 'normal_reroll', 'indices': [],
+            'use_temp_dice_card_id': 'C11'})
 
         self.assertTrue(result['ok'])
         self.assertEqual(len(session.game.dice), 6)
@@ -3927,8 +3926,7 @@ class TestSpectatorRecentEvents(unittest.TestCase):
         self.assertEqual([event['type'] for event in session._recent_events].count(
             'dice_rolled'), 1)
         result = session.submit_action(post_roll['decision_id'], {
-            'choice': 'normal_reroll', 'indices': [0], 'use_ye03': False,
-            'use_c11': False, 'c12_index': None})
+            'choice': 'normal_reroll', 'indices': [0]})
         self.assertTrue(result['ok'])
         rerolls = [event for event in session._recent_events
                    if event['type'] == 'rerolled']
@@ -3936,8 +3934,7 @@ class TestSpectatorRecentEvents(unittest.TestCase):
         self.assertEqual(rerolls[0]['details']['reroll_count'], 1)
         before = copy.deepcopy(session._recent_events)
         rejected = session.submit_action(post_roll['decision_id'], {
-            'choice': 'normal_reroll', 'indices': [0], 'use_ye03': False,
-            'use_c11': False, 'c12_index': None})
+            'choice': 'normal_reroll', 'indices': [0]})
         self.assertFalse(rejected['ok'])
         self.assertEqual(session._recent_events, before)
 

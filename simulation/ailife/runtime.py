@@ -433,10 +433,11 @@ class GameSession:
                 details)
         return outcome
 
-    def _cleanup_normal_market(self, protected=None):
+    def _cleanup_normal_market(self, protected=None, protection_card_id=None):
         """复用正式市场清理，并且只在真实阶段切换后记录展示事件。"""
         old_stage = self.game.stage
-        result = self.game.cleanup_normal_market(protected=protected)
+        result = self.game.cleanup_normal_market(
+            protected=protected, protection_card_id=protection_card_id)
         if result is not None and old_stage != self.game.stage:
             self._append_recent_event(
                 'stage_changed', '进入%s期' % {
@@ -462,7 +463,7 @@ class GameSession:
             return ('childhood_pick_1' if self.game.childhood_draft_round == 0
                     else 'childhood_pick_2')
         if self.game.pre_roll_open:
-            return 'pre_roll_c11'
+            return 'pre_roll_decision'
         if self._purchase_executed:
             if self.game.pending_fate_immediate is not None:
                 return 'fate_immediate_decision'
@@ -526,7 +527,7 @@ class GameSession:
         if self.game.childhood_complete and self.game.turn == 0:
             self.game.start_first_adult_turn()
         if (self.game.pre_roll_open and not self._next_turn_started
-                and 'C11' not in self.game.hand):
+                and not self._pre_roll_has_choices()):
             self._finish_first_roll()
             self._advance_after_dice_change()
         if (self._purchase_executed and not self._debuff_resolved
@@ -779,33 +780,26 @@ class GameSession:
         return copy.deepcopy(plans)
 
     def _market_protection_card(self):
-        """返回当前市场清理窗口可合法使用的 YE-04，或 None。"""
+        """返回当前市场清理窗口可合法使用的市场保护手牌，或 None。"""
         if not self.game.market:
             return None
         return self.game.find_hand_effect('protect_market')
 
-    def _pre_roll_event_ids(self):
-        if not self.game.event_usage_allowed():
-            return []
-        return [cid for cid in ('YE-05', 'ME-02') if cid in self.game.hand]
-
     def _pre_roll_has_choices(self):
         return bool(self.game.flexible_stable_options()
-                    or 'C11' in self.game.hand
-                    or self._pre_roll_event_ids())
+                    or self.game.pre_roll_hand_cards())
 
     def _pre_roll_surfaced(self):
         """本回合是否已出现/将有 pre_roll_decision；纯派生，无新状态。
 
         _pre_roll_has_choices() 覆盖未消耗的选择（flex 选项跨回合稳定、
-        跳过的开关仍在手）；_pre_roll_effects_used['used_card_ids'] 覆盖
-        声明时用掉的 C11/YE-05/ME-02。turn 1 两者皆空且无本 kind，取 False。
+        跳过的手牌仍在手）；_pre_roll_effects_used['used_card_ids'] 覆盖
+        已声明并消耗的手牌。turn 1 两者皆空且无本 kind，取 False。
         """
         if self._pre_roll_has_choices():
             return True
         effects = self._pre_roll_effects_used or {}
-        return bool(set(effects.get('used_card_ids', []))
-                    & {'C11', 'YE-05', 'ME-02'})
+        return bool(effects.get('used_card_ids', []))
 
     def _expose_previous_turn_result(self, stage):
         """上一回合结果每回合至多一个携带者的门控（纯派生）。"""
@@ -1068,7 +1062,7 @@ class GameSession:
 
     def _pre_roll_decision(self):
         flex_options = self.game.flexible_stable_options()
-        event_ids = self._pre_roll_event_ids()
+        hand_card_ids = self.game.pre_roll_hand_cards()
         decision = {
             'decision_id': self._decision_id(),
             'kind': 'pre_roll_decision',
@@ -1085,16 +1079,13 @@ class GameSession:
                 {'card_id': cid, 'allowed_resources': list(allowed)}
                 for cid, allowed in sorted(flex_options.items())],
             'available_pre_roll_cards': [self._card_summary(cid)
-                                         for cid in (['C11'] if 'C11' in self.game.hand else [])
-                                         + event_ids],
+                                         for cid in hand_card_ids],
             'base_dice_count': self.game.current_dice_count(),
             'max_dice_count': 7,
             'legal_action_schema': {
                 'flex_resource_choices': {
                     cid: list(allowed) for cid, allowed in flex_options.items()},
-                'use_c11': 'boolean',
-                'use_ye05': 'boolean',
-                'use_me02': 'boolean',
+                'use_hand_card_ids': list(hand_card_ids),
             },
         }
         hints = self._pending_rule_hints('pre_roll_decision')
@@ -1125,22 +1116,22 @@ class GameSession:
     def _post_roll_decision(self, kind):
         status = self.game.first_normal_reroll_status()
         pool = self.game.post_roll_resources()
-        ye03_available = (not self.game.reroll_happened_this_turn
-                          and 'YE-03' in self.game.hand
-                          and self.game.event_usage_allowed())
+        extra_reroll_cards = self.game.extra_reroll_hand_cards()
+        temp_dice_cards = self.game.hand_effect_cards('temp_dice')
         abilities = []
-        if 'C11' in self.game.hand:
-            abilities.append({'card_id': 'C11', 'kind': 'add_two_dice'})
+        for cid in temp_dice_cards:
+            abilities.append({'card_id': cid, 'kind': 'add_dice',
+                              'dice_count': CARDS[cid]['temp_dice']})
         if self.game.abebe_held and not self.game.abebe_used:
             abilities.append({'card_id': 'C12', 'kind': 'unfreeze_one_bad_luck'})
         special = self.game.available_special_rerolls()
         for item in special:
             abilities.append({'card_id': item['card_id'], 'kind': 'special_reroll',
                               'target_indices': list(item['target_indices'])})
-        if ye03_available:
-            extra_rounds = CARDS['YE-03']['extra_reroll_rounds']
+        for cid in extra_reroll_cards:
+            extra_rounds = CARDS[cid]['extra_reroll_rounds']
             abilities.append({
-                'card_id': 'YE-03',
+                'card_id': cid,
                 'kind': 'extra_normal_reroll_round',
                 'extra_reroll_rounds': extra_rounds,
                 # note 的数值取自卡面 extra_reroll_rounds；措辞用于消除
@@ -1152,7 +1143,8 @@ class GameSession:
         c12_available = self.game.abebe_held and not self.game.abebe_used
         normal_reroll_action = {
             'choice': 'normal_reroll', 'requires': 'indices',
-            'optional': ['use_ye03', 'use_c11', 'c12_index'],
+            'optional': ['use_extra_reroll_card_id', 'use_temp_dice_card_id',
+                         'c12_index'],
         }
         if c12_available:
             normal_reroll_action['c12_note'] = (
@@ -1211,7 +1203,7 @@ class GameSession:
             legal_actions = [
                 normal_reroll_action,
                 {'choice': 'special_reroll', 'requires': ['ability_card_id',
-                 'die_index'], 'optional': ['use_ye03']},
+                 'die_index'], 'optional': ['use_extra_reroll_card_id']},
                 {'choice': 'proceed_to_purchase', 'optional': ['use_yk05']},
             ]
         decision = {
@@ -1236,8 +1228,8 @@ class GameSession:
             'frozen_indices': status['frozen_indices'],
             'freeze_reason': status['freeze_reason'],
             'available_abilities': abilities,
-            'ye03_available': ye03_available,
-            'c11_available': 'C11' in self.game.hand,
+            'extra_reroll_card_ids': list(extra_reroll_cards),
+            'temp_dice_card_ids': list(temp_dice_cards),
             'c12_available': self.game.abebe_held and not self.game.abebe_used,
             'pre_roll_effects_used': copy.deepcopy(self._pre_roll_effects_used),
             'current_debuff': self._debuff_summary(),
@@ -1287,15 +1279,6 @@ class GameSession:
             if hints:
                 decision['rule_hints'] = hints
             return decision
-        if kind == 'pre_roll_c11':
-            return {
-                'decision_id': self._decision_id(),
-                'kind': kind,
-                'life_goals': self._life_goals_summary(),
-                'childhood_cards': self._childhood_summary(),
-                                'candidates': [copy.deepcopy(CARDS['C11'])],
-                'legal_actions': [{'choice': 'use'}, {'choice': 'skip'}],
-            }
         if kind == 'pre_roll_decision':
             return self._pre_roll_decision()
         if kind == 'initial_roll_resolved':
@@ -1398,17 +1381,17 @@ class GameSession:
                 decision['rule_hints'] = hints
             return decision
         if kind == 'market_protection_decision':
-            ye04 = self._market_protection_card()
-            # _auto_advance() 已保证没有可用 YE-04 时会直接完成清理。
-            if ye04 is None:
-                raise RuntimeError('market protection decision has no YE-04')
+            protection_card_id = self._market_protection_card()
+            # _auto_advance() 已保证没有可用市场保护手牌时会直接完成清理。
+            if protection_card_id is None:
+                raise RuntimeError('market protection decision has no protection card')
             decision = {
                 'decision_id': self._decision_id(),
                 'kind': kind,
                 'life_goals': self._life_goals_summary(),
                 'childhood_cards': self._childhood_summary(),
                             'active_fate': self._active_fate_view(),
-                'ye04': self._presented_card(ye04),
+                'protection_card': self._presented_card(protection_card_id),
                 'current_market': self._current_opportunities(),
                 'system_elimination_count': max(
                     0, 3 - len(self.game.purchased_this_turn)),
@@ -1513,31 +1496,19 @@ class GameSession:
                     '童年 Draft 完成：%s' % '、'.join(
                         CARDS[cid]['name'] for cid in kept),
                     {'card_ids': kept})
-        elif current['kind'] == 'pre_roll_c11':
-            if (not isinstance(action, dict) or set(action) != {'choice'}
-                    or action not in current['legal_actions']):
-                return {'ok': False, 'error': 'illegal_action',
-                        'decision': current}
-            if action['choice'] == 'use' and not self.game.use_pre_roll_c11():
-                return {'ok': False, 'error': 'illegal_action',
-                        'decision': self.current_decision()}
-            self._finish_first_roll()
-            accepted = dict(action)
         elif current['kind'] == 'pre_roll_decision':
-            allowed = {'flex_resource_choices', 'use_c11', 'use_ye05',
-                       'use_me02'}
+            allowed = {'flex_resource_choices', 'use_hand_card_ids'}
             if (not isinstance(action, dict) or not set(action) <= allowed
                     or not isinstance(action.get('flex_resource_choices',
-                                                  {}), dict)):
+                                                  {}), dict)
+                    or not isinstance(action.get('use_hand_card_ids', []), list)):
                 return {'ok': False, 'error': 'invalid_action',
                         'decision': current}
             # 未提交的开关默认 false、flex 默认空选择；正式规则
             # （窗口/持有/事件封锁）仍全部由 apply_pre_roll_declarations 校验。
             effects = self.game.apply_pre_roll_declarations(
                 action.get('flex_resource_choices', {}),
-                action.get('use_c11', False),
-                action.get('use_ye05', False),
-                action.get('use_me02', False))
+                action.get('use_hand_card_ids', []))
             if effects is None:
                 return {'ok': False, 'error': 'illegal_action',
                         'decision': current}
@@ -1672,13 +1643,18 @@ class GameSession:
             if not isinstance(action, dict):
                 return {'ok': False, 'error': 'invalid_action',
                         'decision': current}
+            protection_card_id = self._market_protection_card()
+            if protection_card_id is None:
+                return {'ok': False, 'error': 'market_state_mismatch',
+                        'decision': current}
             if action == {'choice': 'skip'}:
                 result = self._cleanup_normal_market()
             elif (set(action) == {'choice', 'target_card_id'}
                     and action.get('choice') == 'use'
                     and action in current['legal_actions']):
                 result = self._cleanup_normal_market(
-                    protected=action['target_card_id'])
+                    protected=action['target_card_id'],
+                    protection_card_id=protection_card_id)
             else:
                 return {'ok': False, 'error': 'illegal_action',
                         'decision': current}
@@ -1731,39 +1707,51 @@ class GameSession:
                 self._enter_purchase_ready()
                 accepted = dict(action)
             elif action.get('choice') in ('normal_reroll', 'reroll'):
-                allowed = {'choice', 'indices', 'use_ye03', 'use_c11', 'c12_index'}
+                allowed = {'choice', 'indices', 'use_extra_reroll_card_id',
+                           'use_temp_dice_card_id', 'c12_index'}
                 if (set(action) - allowed or 'indices' not in action
                         or not isinstance(action['indices'], list)):
                     return {'ok': False, 'error': 'invalid_action',
                             'decision': current}
-                use_c11 = action.get('use_c11', False)
-                use_ye03 = action.get('use_ye03', False)
+                extra_card_id = action.get('use_extra_reroll_card_id')
+                temp_dice_card_id = action.get('use_temp_dice_card_id')
                 c12_index = action.get('c12_index')
-                if (not isinstance(use_c11, bool) or not isinstance(use_ye03, bool)
+                if ((extra_card_id is not None and not isinstance(extra_card_id, str))
+                        or (temp_dice_card_id is not None
+                            and not isinstance(temp_dice_card_id, str))
                         or (self._rerolls_remaining or 0) <= 0):
                     return {'ok': False, 'error': 'invalid_action',
                         'decision': current}
-                if (use_c11 and 'C11' not in self.game.hand) or not self.game.normal_reroll_is_legal(
-                        action['indices'], c12_index):
+                if not self.game.normal_reroll_is_legal(action['indices'], c12_index):
                     return {'ok': False, 'error': 'illegal_action',
                         'decision': current}
-                if use_ye03 and not self.game.use_ye03():
+                # 所有拟消耗手牌先在同一提交前快照校验，避免后一个非法
+                # card_id 让前一个有效能力被半途消耗。
+                if ((extra_card_id and extra_card_id not in
+                     self.game.extra_reroll_hand_cards())
+                        or (temp_dice_card_id and temp_dice_card_id not in
+                            self.game.hand_effect_cards('temp_dice'))
+                        or (extra_card_id and extra_card_id == temp_dice_card_id)):
                     return {'ok': False, 'error': 'illegal_action',
                             'decision': current}
-                if use_ye03:
-                    self._rerolls_remaining += 1
-                c11_added = False
-                if use_c11:
-                    dice_count_before_c11 = len(self.game.dice)
-                    if not self.game.use_reroll_c11():
+                if extra_card_id:
+                    added_rounds = self.game.use_extra_reroll_card(extra_card_id)
+                    if not added_rounds:
+                        return {'ok': False, 'error': 'illegal_action',
+                                'decision': current}
+                    self._rerolls_remaining += added_rounds
+                dice_added = False
+                if temp_dice_card_id:
+                    dice_count_before = len(self.game.dice)
+                    if not self.game.use_reroll_temp_dice(temp_dice_card_id):
                         return {'ok': False, 'error': 'illegal_action',
                                 'decision': self.current_decision()}
-                    c11_added = len(self.game.dice) > dice_count_before_c11
+                    dice_added = len(self.game.dice) > dice_count_before
                 rerolled = self.game.apply_normal_reroll(action['indices'], c12_index)
                 if rerolled is False:
                     return {'ok': False, 'error': 'illegal_action',
                             'decision': self.current_decision()}
-                if c11_added:
+                if dice_added:
                     self._dice_roll_revision += 1
                 if rerolled:
                     self._dice_roll_revision += 1
@@ -1776,20 +1764,27 @@ class GameSession:
                 self._advance_after_dice_change()
                 accepted = dict(action)
             elif action.get('choice') == 'special_reroll':
-                allowed = {'choice', 'ability_card_id', 'die_index', 'use_ye03'}
+                allowed = {'choice', 'ability_card_id', 'die_index',
+                           'use_extra_reroll_card_id'}
                 if set(action) - allowed or not all(k in action for k in
-                        ('ability_card_id', 'die_index')) or not isinstance(
-                            action.get('use_ye03', False), bool):
+                        ('ability_card_id', 'die_index')) or (
+                            action.get('use_extra_reroll_card_id') is not None
+                            and not isinstance(action.get('use_extra_reroll_card_id'), str)):
                     return {'ok': False, 'error': 'invalid_action',
                             'decision': current}
-                if action.get('use_ye03', False):
+                extra_card_id = action.get('use_extra_reroll_card_id')
+                if extra_card_id:
                     option = next((item for item in self.game.available_special_rerolls()
                                    if item['card_id'] == action['ability_card_id']
                                    and action['die_index'] in item['target_indices']), None)
-                    if option is None or not self.game.use_ye03():
+                    if (option is None
+                            or extra_card_id not in self.game.extra_reroll_hand_cards()
+                            or (option['source'] == 'hand'
+                                and extra_card_id == action['ability_card_id'])):
                         return {'ok': False, 'error': 'illegal_action',
                                 'decision': current}
-                    self._rerolls_remaining += 1
+                    added_rounds = self.game.use_extra_reroll_card(extra_card_id)
+                    self._rerolls_remaining += added_rounds
                 if not self.game.apply_special_reroll(
                         action['ability_card_id'], action['die_index']):
                     return {'ok': False, 'error': 'illegal_action',

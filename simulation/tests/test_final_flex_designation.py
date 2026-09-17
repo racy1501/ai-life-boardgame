@@ -224,8 +224,6 @@ class TestFullPlaythroughSmoke(unittest.TestCase):
                 return final_flex_seen, decision
             if kind.startswith('childhood_pick'):
                 action = decision['legal_actions'][0]
-            elif kind == 'pre_roll_c11':
-                action = {'choice': 'skip'}
             elif kind == 'pre_roll_decision':
                 action = self._pre_roll_action(decision)
             elif kind == 'post_roll_decision':

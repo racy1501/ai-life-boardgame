@@ -366,10 +366,25 @@ class Game:
     def active_cards(self):
         return [self.active(c) for c in 'HKRWP' if self.active(c)]
 
+    def hand_effect_cards(self, effect):
+        """返回当前可使用、带有指定字段的手牌。
+
+        Event 仍受 D05/F09 等事件封锁；童年牌不属于 Event，不能被误封锁。
+        """
+        return [cid for cid in self.hand
+                if CARDS[cid].get(effect)
+                and (CARDS[cid]['type'] != 'E' or self.event_usage_allowed())]
+
     def find_hand_effect(self, effect):
-        if not self.event_usage_allowed():
-            return None
-        return next((cid for cid in self.hand if CARDS[cid].get(effect)), None)
+        cards = self.hand_effect_cards(effect)
+        return cards[0] if cards else None
+
+    def _consume_hand_card(self, cid):
+        """消耗一张已校验的手牌，并写入其既有统计口径。"""
+        self.hand.remove(cid)
+        bucket = ('event_uses' if CARDS[cid]['type'] == 'E'
+                  else 'childhood_uses')
+        self.stats.game[bucket][cid] += 1
 
     def active_debuff_card(self):
         if (self.current_debuff and self.debuff_active_from_turn is not None
@@ -571,13 +586,19 @@ class Game:
             raise RuntimeError('only the first adult turn may be started here')
         self.start_adult_turn()
 
-    def apply_pre_roll_declarations(self, flex_choices, use_c11=False,
-                                    use_ye05=False, use_me02=False):
+    def pre_roll_hand_cards(self):
+        """掷骰前可声明的一次性手牌；不创建新的能力系统。"""
+        return [cid for cid in self.hand
+                if (CARDS[cid].get('temp_dice')
+                    or CARDS[cid].get('pre_cancel_debuff'))
+                and (CARDS[cid]['type'] != 'E' or self.event_usage_allowed())]
+
+    def apply_pre_roll_declarations(self, flex_choices, hand_card_ids=()):
         """原子应用首次掷骰前的资源选择与一次性声明。"""
         if not self.pre_roll_open or self.stable_resources_finalized:
             return None
-        if not isinstance(use_c11, bool) or not isinstance(use_ye05, bool) \
-                or not isinstance(use_me02, bool):
+        if (not isinstance(hand_card_ids, (list, tuple))
+                or len(hand_card_ids) != len(set(hand_card_ids))):
             return None
         options = self.flexible_stable_options()
         if set(flex_choices) != set(options):
@@ -585,44 +606,36 @@ class Game:
         if any(choice not in options[cid]
                for cid, choice in flex_choices.items()):
             return None
-        if use_c11 and 'C11' not in self.hand:
+        eligible = self.pre_roll_hand_cards()
+        if any(cid not in eligible for cid in hand_card_ids):
             return None
-        if (use_ye05 or use_me02) and not self.event_usage_allowed():
-            return None
-        if use_ye05 and 'YE-05' not in self.hand:
-            return None
-        if use_me02 and 'ME-02' not in self.hand:
+        pre_cancels = [cid for cid in hand_card_ids
+                       if CARDS[cid].get('pre_cancel_debuff')]
+        if len(pre_cancels) > 1:
             return None
 
         if not self.finalize_stable_resources(flex_choices):
             return None
         used = []
-        if use_c11:
-            self.hand.remove('C11')
-            self.temp_dice += 2
-            self.stats.game['childhood_uses']['C11'] += 1
-            used.append('C11')
-        if use_ye05:
-            self.hand.remove('YE-05')
-            self.temp_dice += 1
-            self.stats.game['event_uses']['YE-05'] += 1
-            used.append('YE-05')
-        if use_me02:
-            self.hand.remove('ME-02')
-            self.pre_debuff_cancel = 'ME-02'
-            self.stats.game['pre_debuff_cancel_declared'] += 1
-            self.stats.game['event_uses']['ME-02'] += 1
-            used.append('ME-02')
+        for cid in hand_card_ids:
+            card = CARDS[cid]
+            if card.get('temp_dice'):
+                self.temp_dice += card['temp_dice']
+            if card.get('pre_cancel_debuff'):
+                self.pre_debuff_cancel = cid
+                self.stats.game['pre_debuff_cancel_declared'] += 1
+            self._consume_hand_card(cid)
+            used.append(cid)
         return {'flex_resource_choices': dict(flex_choices),
                 'used_card_ids': used}
 
-    def use_pre_roll_c11(self):
-        """在首次掷骰前使用 C11；不在窗口或未持有时无副作用。"""
-        if not self.pre_roll_open or 'C11' not in self.hand:
+    def use_pre_roll_temp_dice(self, cid):
+        """在首次掷骰前使用一张带 temp_dice 的合法手牌。"""
+        if (not self.pre_roll_open or cid not in self.pre_roll_hand_cards()
+                or not CARDS[cid].get('temp_dice')):
             return False
-        self.hand.remove('C11')
-        self.temp_dice += 2
-        self.stats.game['childhood_uses']['C11'] += 1
+        self.temp_dice += CARDS[cid]['temp_dice']
+        self._consume_hand_card(cid)
         return True
 
     def roll_first_dice(self):
@@ -698,16 +711,17 @@ class Game:
         return (Counter({s: n for s, n in pool.items() if n > 0}),
                 wildcard_count)
 
-    def use_reroll_c11(self):
-        """在正常重掷开始前使用 C11，并补掷至当前正式骰池上限。"""
-        if self.pre_roll_open or not self.dice or 'C11' not in self.hand:
+    def use_reroll_temp_dice(self, cid):
+        """在正常重掷开始前使用 temp_dice 手牌，并补掷至正式上限。"""
+        if (self.pre_roll_open or not self.dice or cid not in self.hand
+                or not CARDS[cid].get('temp_dice')
+                or (CARDS[cid]['type'] == 'E' and not self.event_usage_allowed())):
             return False
-        self.hand.remove('C11')
-        self.temp_dice += 2
+        self.temp_dice += CARDS[cid]['temp_dice']
         added = max(0, self.current_dice_count() - len(self.dice))
         self.dice.extend(self._roll(added))
         self._after_dice_change()
-        self.stats.game['childhood_uses']['C11'] += 1
+        self._consume_hand_card(cid)
         return True
 
     def normal_reroll_is_legal(self, selected, c12_index=None):
@@ -746,11 +760,13 @@ class Game:
         return count
 
     def available_special_rerolls(self):
-        """当前 active 提供的独立单骰重掷；不消耗正常轮数。"""
+        """active 或手牌提供的独立单骰重掷；不消耗正常轮数。"""
         choices = []
-        for cid in self.active_cards():
+        sources = [(cid, 'active') for cid in self.active_cards()]
+        sources.extend((cid, 'hand') for cid in self.hand_effect_cards('reroll'))
+        for cid, source in sources:
             rule = CARDS[cid].get('reroll')
-            if not rule or cid in self.special_reroll_used:
+            if not rule or (source == 'active' and cid in self.special_reroll_used):
                 continue
             filt = rule.get('filter')
             if filt == 'non_bl':
@@ -763,7 +779,8 @@ class Game:
             else:
                 continue
             if indices:
-                choices.append({'card_id': cid, 'target_indices': indices})
+                choices.append({'card_id': cid, 'source': source,
+                                'target_indices': indices})
         return choices
 
     def apply_special_reroll(self, card_id, die_index):
@@ -774,24 +791,33 @@ class Game:
                 or die_index not in option['target_indices']:
             return False
         self.dice[die_index] = self._roll(1)[0]
-        self.special_reroll_used.add(card_id)
-        if card_id == 'OH-04':
+        if option['source'] == 'hand':
+            self._consume_hand_card(card_id)
+        else:
+            self.special_reroll_used.add(card_id)
+        if option['source'] == 'active' and card_id == 'OH-04':
             self.oh04_used = True
             self.stats.run['oh04_bl_rerolls'] += 1
         self.stats.run['single_rerolls'] += 1
-        self.stats.card(card_id)['ability']['reroll'] += 1
+        if option['source'] == 'active':
+            self.stats.card(card_id)['ability']['reroll'] += 1
         self.reroll_happened_this_turn = True
         self._after_dice_change()
         return True
 
-    def use_ye03(self):
-        """首次骰后、任何实际重掷前使用 YE-03；只负责消耗卡与校验。"""
-        if (self.reroll_happened_this_turn or 'YE-03' not in self.hand
-                or not self.event_usage_allowed()):
+    def extra_reroll_hand_cards(self):
+        """骰后、实际重掷前可换取额外正常重掷轮的手牌。"""
+        if self.reroll_happened_this_turn:
+            return []
+        return self.hand_effect_cards('extra_reroll_rounds')
+
+    def use_extra_reroll_card(self, cid):
+        """消耗一张手牌，返回其增加的正常重掷轮数。"""
+        if cid not in self.extra_reroll_hand_cards():
             return False
-        self.hand.remove('YE-03')
-        self.stats.game['event_uses']['YE-03'] += 1
-        return True
+        extra = CARDS[cid]['extra_reroll_rounds']
+        self._consume_hand_card(cid)
+        return extra
 
     def _after_dice_change(self):
         """所有真实骰面变化后的共享正式检查。"""
@@ -1466,9 +1492,10 @@ class Game:
                 fate_cost = Counter(FATE_BY_ID[fate_cid]['cost']) \
                     if fate_cid else Counter()
                 ordinary_remaining = Counter(normal['remaining_resources'])
-                unused_c05 = ('C05' in self.hand and
-                              'C05' not in normal['consumed_childhood_card_ids'])
-                fate_temps = [('GL', 1, 'C05')] if unused_c05 else []
+                fate_temps = [
+                    ('GL', CARDS[cid]['temp_gl'], cid)
+                    for cid in self.hand_effect_cards('temp_gl')
+                    if cid not in normal['consumed_childhood_card_ids']]
                 fate_dice_gl_available = max(
                     0, self.purchase_payment_resources(pool_override)[1]
                     - len(normal['f10_dice_gl_conversions'])
@@ -1490,13 +1517,10 @@ class Game:
                     child_consumed = sorted(set(
                         normal['consumed_childhood_card_ids']) |
                         set(fate_solution['temps_used']))
-                    fate_temp_used = []
-                    if 'C05' in fate_solution['temps_used']:
-                        fate_temp_used.append({
-                            'childhood_card_id': 'C05',
-                            'resource': 'GL',
-                            'amount': fate_solution['temp_units_used'].count('C05'),
-                        })
+                    fate_temp_used = [
+                        {'childhood_card_id': cid, 'resource': 'GL',
+                         'amount': fate_solution['temp_units_used'].count(cid)}
+                        for cid in fate_solution['temps_used']]
                     canonical = {
                         'ordinary_card_ids': ordinary_ids,
                         'fate_card_id': fate_cid,
@@ -1895,11 +1919,19 @@ class Game:
         fate_temps = list(fate_payment.get(
             'childhood_temporary_resources_used', []))
         fate_paid = Counter(fate_spent)
+        used_fate_temp_ids = set()
         for use in fate_temps:
-            if (use != {'childhood_card_id': 'C05', 'resource': 'GL', 'amount': 1}
-                    or 'C05' not in consumed_children):
+            try:
+                source, resource, amount = (use['childhood_card_id'],
+                                            use['resource'], use['amount'])
+            except (KeyError, TypeError):
                 return False
-            fate_paid['GL'] += 1
+            if (source in used_fate_temp_ids or source not in consumed_children
+                    or resource != 'GL' or type(amount) is not int or amount <= 0
+                    or CARDS[source].get('temp_gl') != amount):
+                return False
+            used_fate_temp_ids.add(source)
+            fate_paid['GL'] += amount
         if (Counter(fate_payment.get('required_resources', {})) != expected_fate
                 or fate_paid != expected_fate
                 or any(fate_spent[sym] > spent[sym] for sym in fate_spent)):
@@ -2047,7 +2079,7 @@ class Game:
         return cid
 
     def debuff_cancel_options(self):
-        """当前可用的 Debuff 保护选项（C06 在手 / active 未用的 MH-02）。
+        """当前可用的 Debuff 保护选项（手牌 / active 未用能力）。
 
         正式规则：仅 Debuff 牌库非空时提供——牌库已空则本次不产生
         Debuff，保护不得被消耗。调用方仍需自行确认触发条件成立。
@@ -2055,8 +2087,8 @@ class Game:
         if not self.debuff_deck:
             return []
         options = []
-        if 'C06' in self.hand:
-            options.append({'cid': 'C06', 'source': 'hand'})
+        options.extend({'cid': cid, 'source': 'hand'}
+                       for cid in self.hand_effect_cards('cancel_debuff'))
         for cid in self.active_cards():
             if (CARDS[cid].get('cancel_debuff_once')
                     and cid not in self.used_once_cards):
@@ -2496,16 +2528,22 @@ class Game:
             chosen += self.rng.sample(rest, min(k, len(rest)))
         return chosen
 
-    def cleanup_normal_market(self, protected=None):
-        """结算本回合普通市场离场与补牌；``protected`` 绑定 YE-04。
+    def cleanup_normal_market(self, protected=None, protection_card_id=None):
+        """结算本回合普通市场离场与补牌。
 
-        调用方只可在市场清理窗口调用本方法。传入保护目标即代表使用
-        YE-04；非法目标在任何随机、资源或市场变化前被拒绝。Runtime 与
+        调用方只可在市场清理窗口调用本方法。传入保护目标及其来源手牌即代表
+        使用市场保护；非法目标在任何随机、资源或市场变化前被拒绝。Runtime 与
         Simulator 都通过此处共享固定淘汰、随机淘汰与补牌规则。
         """
         if protected is not None:
-            if protected not in self.market or 'YE-04' not in self.hand:
+            if (protected not in self.market or protection_card_id is None
+                    or protection_card_id not in self.hand
+                    or not CARDS[protection_card_id].get('protect_market')
+                    or (CARDS[protection_card_id]['type'] == 'E'
+                        and not self.event_usage_allowed())):
                 return None
+        elif protection_card_id is not None:
+            return None
 
         st = self.stats
         final_pending_before_cleanup = self.final_pending
@@ -2513,14 +2551,15 @@ class Game:
         purchased = list(self.purchased_this_turn)
         needed = max(0, 3 - len(purchased))
 
-        # 先完成所有前置校验，之后才落地 YE-04 的消耗与市场变更。
+        # 先完成所有前置校验，之后才落地市场保护的消耗与市场变更。
         if protected is not None:
-            self.hand.remove('YE-04')
-            st.game['event_uses']['YE-04'] += 1
-            st.run['ye04_used'] += 1
+            self._consume_hand_card(protection_card_id)
+            if protection_card_id == 'YE-04':
+                st.run['ye04_used'] += 1
             # 不为统计另做一次随机反事实淘汰；只有保护固定淘汰位时可确定
             # 它改变了原结果，且不会额外消费 Game.rng。
-            if market_before and market_before[0] == protected:
+            if (protection_card_id == 'YE-04' and market_before
+                    and market_before[0] == protected):
                 st.run['ye04_mattered'] += 1
 
         eliminated = self._pick_elims(protected, needed)
@@ -2557,7 +2596,8 @@ class Game:
             'purchased_card_ids': purchased,
             'system_eliminated_card_ids': list(eliminated),
             'protected_card_id': protected,
-            'ye04_used': protected is not None,
+            'protection_source_card_id': protection_card_id,
+            'ye04_used': protection_card_id == 'YE-04',
             'market_before_cleanup': market_before,
             'market_after_elimination': market_after_elimination,
             'refill_card_ids': list(refill),
@@ -2571,11 +2611,13 @@ class Game:
         return self.market_cleanup_result
 
     def _settlement(self):
-        # Simulator 的 YE-04 使用时机仍由 strategy 决定；市场规则只在
+        # Simulator 的市场保护使用时机仍由 strategy 决定；市场规则只在
         # cleanup_normal_market() 中执行。
-        tgt = None if self._event_blocked() else self.strat.ye04_target()
-        protected = tgt if (tgt and 'YE-04' in self.hand and tgt in self.market) else None
-        result = self.cleanup_normal_market(protected=protected)
+        source = self.find_hand_effect('protect_market')
+        tgt = self.strat.ye04_target() if source else None
+        protected = tgt if tgt in self.market else None
+        result = self.cleanup_normal_market(
+            protected=protected, protection_card_id=source if protected else None)
         if result is None:
             raise AssertionError('simulator market protection became invalid')
 
@@ -2631,16 +2673,11 @@ class Game:
         for cid, allowed in flex_options.items():
             choice = self.strat.choose_flex(cid, allowed)
             flex_choices[cid] = choice if choice in allowed else allowed[0]
-        # ---- 2. 掷骰前声明（YE-05 / C11 / ME-02）
+        # ---- 2. 掷骰前声明（按手牌字段统一结算）
         dec = self.strat.declare_pre_roll() or {}
-        event_allowed = self.event_usage_allowed()
         if self.apply_pre_roll_declarations(
             flex_choices=flex_choices,
-            use_c11=bool(dec.get('c11')) and 'C11' in self.hand,
-            use_ye05=(bool(dec.get('ye05')) and 'YE-05' in self.hand
-                       and event_allowed),
-            use_me02=(dec.get('pre_cancel_debuff') == 'ME-02'
-                       and 'ME-02' in self.hand and event_allowed)) is None:
+            hand_card_ids=dec.get('hand_card_ids', ())) is None:
             raise AssertionError('simulator pre-roll declaration became invalid')
         for cid in self.active_cards():
             if CARDS[cid].get('extra_die'):
@@ -2655,8 +2692,12 @@ class Game:
         if debuff_now and debuff_now.get('reroll_delta', 0) < 0:
             st.debuff(debuff_now['id'])['ability']['reroll_rounds_lost'] += \
                 -debuff_now['reroll_delta']
-        if self.strat.use_ye03() and self.use_ye03():
-            rounds += 1
+        extra_card = self.strat.use_extra_reroll_card(
+            tuple(self.extra_reroll_hand_cards()))
+        if extra_card:
+            added = self.use_extra_reroll_card(extra_card)
+            if added:
+                rounds += added
         for r in range(rounds):
             fate_now = self.active_fate_card()
             if self.normal_rerolls_locked():
