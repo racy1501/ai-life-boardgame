@@ -304,8 +304,8 @@ let latestSpectatorMaxDiceCount = DICE_SLOT_COUNT;
 let diceAnimationInterval = null;
 let diceAnimationEndTimer = null;
 let diceAnimationToken = 0;
-const DICE_ROLL_DURATION_MS = 420;
-const DICE_ROLL_FRAME_MS = 70;
+const DICE_ROLL_DURATION_MS = 700;
+const DICE_ROLL_FRAME_MS = 90;
 const diceAnimationActive = () => diceAnimationEndTimer !== null;
 const cancelDiceAnimation = () => {
   diceAnimationToken += 1;
