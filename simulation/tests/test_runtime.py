@@ -561,8 +561,13 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertTrue(result['ok'])
         self.assertNotIn('YE-01', session.game.hand)
         purchase = result['decision']['previous_turn_result']['purchase_result']
-        self.assertEqual(purchase['consumed_event_card_ids'], ['YE-01'])
-        self.assertEqual(purchase[
+        self.assertEqual(purchase['purchased_card_ids'], ['YP-01'])
+        self.assertNotIn('consumed_event_card_ids', purchase)
+        self.assertNotIn('event_temporary_resources_used', purchase)
+        # 内部正式结算事实仍完整保留，供 Engine / Runtime 后续链路使用。
+        internal_purchase = session._previous_turn_result['purchase_result']
+        self.assertEqual(internal_purchase['consumed_event_card_ids'], ['YE-01'])
+        self.assertEqual(internal_purchase[
             'event_temporary_resources_used'][0]['amount'], 2)
 
     def snapshot(self, session):
@@ -1129,7 +1134,16 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertEqual(result['purchased_card_ids'], [])
         self.assertEqual(len(result['system_eliminated_card_ids']), 3)
         self.assertEqual(result['system_eliminated_card_ids'][0], 'YH-01')
-        self.assertEqual(len(result['market_after_refill']), 5)
+        self.assertNotIn('market_after_refill', result)
+        self.assertEqual(
+            [card['id'] for card in decision['current_opportunities']],
+            session.game.market)
+        self.assertEqual(result['stage'], session.game.stage)
+        self.assertEqual(result['deck_counts'], {
+            stage: len(session.game.decks[stage])
+            for stage in ('youth', 'middle', 'elder')})
+        self.assertIn('final_round_pending', result)
+        self.assertIn('debuff_result', decision['previous_turn_result'])
         self.assertEqual(result['market_after_elimination'], [
             cid for cid in result['market_before_cleanup']
             if cid not in result['system_eliminated_card_ids']])
@@ -1253,6 +1267,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertTrue(
             decision['previous_turn_result']['market_cleanup_result']
             ['final_round_started'])
+        self.assertTrue(decision['previous_turn_result']['final_round_pending'])
         self.assertFalse(session.game.game_over)
 
     def next_turn_session(self, stacks=(), hand=(), debuff=None):
@@ -2551,6 +2566,69 @@ class TestPreviousTurnResultGating(unittest.TestCase):
         final = session.current_decision()
         self.assertEqual(final['kind'], 'game_over')
         self.assertEqual(final['previous_turn_result']['completed_turn'], 2)
+
+
+class TestPreviousTurnResultProjection(unittest.TestCase):
+    def setUp(self):
+        self.session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        self.session._previous_turn_result = {
+            'completed_turn': 4,
+            'next_turn': 5,
+            'debuff_lifecycle': {'advanced': True},
+            'purchase_result': {
+                'purchased_card_ids': ['YP-01'],
+                'consumed_childhood_card_ids': ['C03'],
+                'consumed_event_card_ids': ['YE-01'],
+                'event_temporary_resources_used': [
+                    {'event_card_id': 'YE-01', 'resource': 'M', 'amount': 1}],
+                'spent_resources': {'M': 1},
+                'remaining_resources': {'K': 1},
+            },
+            'maintenance_result': {
+                'lost_card_ids': ['YH-01'],
+                'paid': [],
+            },
+            'market_cleanup_result': {
+                'purchased_card_ids': ['YP-01'],
+                'market_after_refill': ['YK-01'],
+                'stage': 'middle',
+                'deck_counts': {'youth': 1, 'middle': 2, 'elder': 3},
+                'final_round_pending': True,
+            },
+            'final_round_pending': True,
+            'game_over': False,
+            'debuff_result': {
+                'outcome': 'drawn', 'drawn_card_id': 'D01',
+                'cancelled_by_card_id': None,
+            },
+        }
+
+    def test_projection_keeps_state_signals_and_only_removes_confirmed_history(self):
+        original = copy.deepcopy(self.session._previous_turn_result)
+        projected = self.session._previous_turn_result_view(
+            {'current_opportunities': [{'id': 'YK-01'}]})
+
+        self.assertEqual(set(projected), set(original))
+        self.assertEqual(projected['completed_turn'], 4)
+        self.assertTrue(projected['final_round_pending'])
+        self.assertEqual(projected['debuff_result'], original['debuff_result'])
+        self.assertEqual(projected['maintenance_result']['lost_card_ids'],
+                         ['YH-01'])
+        cleanup = projected['market_cleanup_result']
+        self.assertEqual(cleanup['stage'], 'middle')
+        self.assertEqual(cleanup['deck_counts'],
+                         {'youth': 1, 'middle': 2, 'elder': 3})
+        self.assertTrue(cleanup['final_round_pending'])
+        self.assertNotIn('market_after_refill', cleanup)
+        self.assertEqual(projected['purchase_result'],
+                         {'purchased_card_ids': ['YP-01']})
+        self.assertEqual(self.session._previous_turn_result, original)
+
+    def test_market_history_stays_when_response_has_no_current_opportunities(self):
+        projected = self.session._previous_turn_result_view({})
+        self.assertEqual(
+            projected['market_cleanup_result']['market_after_refill'],
+            ['YK-01'])
 
 
 class TestRuntimeGameOverScore(unittest.TestCase):

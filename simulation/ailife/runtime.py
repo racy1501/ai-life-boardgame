@@ -815,10 +815,33 @@ class GameSession:
                         or self._has_dice_post_actions())
         return False
 
+    def _previous_turn_result_view(self, payload=None):
+        """返回玩家 response 使用的上一回合结果投影。
+
+        内部 previous_turn_result 保留完整结算事实；这里只裁掉当前 response
+        已有同义状态覆盖、且对当前决策不可行动的历史流水。
+        """
+        previous = copy.deepcopy(self._previous_turn_result)
+        if previous is None:
+            return None
+        purchase = previous.get('purchase_result')
+        if isinstance(purchase, dict):
+            for key in ('consumed_childhood_card_ids',
+                        'consumed_event_card_ids',
+                        'event_temporary_resources_used',
+                        'spent_resources',
+                        'remaining_resources'):
+                purchase.pop(key, None)
+        if (isinstance(payload, dict)
+                and 'current_opportunities' in payload):
+            cleanup = previous.get('market_cleanup_result')
+            if isinstance(cleanup, dict):
+                cleanup.pop('market_after_refill', None)
+        return previous
+
     def _attach_previous_turn_result(self, payload, stage):
         if self._expose_previous_turn_result(stage):
-            payload['previous_turn_result'] = copy.deepcopy(
-                self._previous_turn_result)
+            payload['previous_turn_result'] = self._previous_turn_result_view(payload)
         return payload
 
     def _card_summary(self, cid):
@@ -1447,7 +1470,7 @@ class GameSession:
                                     **self.game.scoring_counts(),
                                     flex_designation=self._final_flex_designation),
                 'completed_turn': self._previous_turn_result['completed_turn'],
-                'previous_turn_result': copy.deepcopy(self._previous_turn_result),
+                'previous_turn_result': self._previous_turn_result_view(),
                 'candidates': [],
                 'legal_actions': [],
             }
