@@ -26,6 +26,7 @@ import os
 import sys
 import threading
 import uuid
+from functools import wraps
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
@@ -184,6 +185,27 @@ def _slim_result(result):
     return slimmed
 
 
+def _compact_json_text(result):
+    """沿用 SDK 的 JSON 规则，只移除 pretty-print 缩进。"""
+    try:
+        # MCP SDK 已依赖 pydantic-core；这里与其 dict 返回路径使用同一序列化器，
+        # 唯一差异是省略 indent=2。
+        from pydantic_core import to_json
+    except ImportError:
+        # 没有安装 SDK 时，三个 Python wrapper 仍可被直接测试与调用。
+        return json.dumps(result, ensure_ascii=False, separators=(',', ':'),
+                          default=str)
+    return to_json(result, fallback=str).decode('utf-8')
+
+
+def _compact_json_tool(tool_function):
+    """只在 MCP transport 边界把正式 dict result 转为 compact JSON text。"""
+    @wraps(tool_function)
+    def compact_tool(*args, **kwargs):
+        return _compact_json_text(tool_function(*args, **kwargs))
+    return compact_tool
+
+
 def start_game(seed: Optional[int] = None,
                forced_goals: Optional[List[int]] = None,
                player_name: Optional[str] = None,
@@ -230,9 +252,12 @@ def _build_server():
     server = _McpServer('ai-life-boardgame-runtime')
     # structured_output=False：decision dict 只经 content[0].text 一份下发，
     # 避免 SDK 同时携带 structuredContent 造成同载荷双份重复。
-    server.tool(name='start_game', structured_output=False)(start_game)
-    server.tool(name='current_decision', structured_output=False)(current_decision)
-    server.tool(name='submit_action', structured_output=False)(submit_action)
+    server.tool(name='start_game', structured_output=False)(
+        _compact_json_tool(start_game))
+    server.tool(name='current_decision', structured_output=False)(
+        _compact_json_tool(current_decision))
+    server.tool(name='submit_action', structured_output=False)(
+        _compact_json_tool(submit_action))
     return server
 
 

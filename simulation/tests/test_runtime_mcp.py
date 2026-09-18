@@ -52,6 +52,13 @@ def result_text(result):
     return result.content[0].text
 
 
+def result_structured_content(result):
+    for attribute in ('structuredContent', 'structured_content'):
+        if hasattr(result, attribute):
+            return getattr(result, attribute)
+    return None
+
+
 class RuntimeMcpTestCase(unittest.TestCase):
     def setUp(self):
         runtime_mcp._SESSIONS.clear()
@@ -227,6 +234,14 @@ class TestSubmitAction(RuntimeMcpTestCase):
 
 
 class TestRuntimePassthrough(RuntimeMcpTestCase):
+    def test_compact_json_round_trips_without_escaping_chinese(self):
+        original = {'ok': True, 'player_name': '阿屿',
+                    'nested': {'emoji': '🦊'}}
+        text = runtime_mcp._compact_json_text(original)
+        self.assertEqual(text, '{"ok":true,"player_name":"阿屿",'
+                               '"nested":{"emoji":"🦊"}}')
+        self.assertEqual(json.loads(text), original)
+
     def test_decisions_stay_in_lockstep_with_runtime(self):
         session_id = runtime_mcp.start_game(seed=0, forced_goals=[1, 2])['session_id']
         reference = GameSession(seed=0, forced_goals=[1, 2])
@@ -462,6 +477,42 @@ class TestServerWiring(RuntimeMcpTestCase):
             'current_decision', {'session_id': 'nope'}))
         self.assertFalse(result_is_error(result))
         self.assertIn('unknown_session_id', result_text(result))
+
+    def test_all_tools_return_compact_json_without_structured_duplicate(self):
+        started_result = asyncio.run(runtime_mcp.server.call_tool(
+            'start_game', {'seed': 0, 'forced_goals': [1, 2]}))
+        started_text = result_text(started_result)
+        started = json.loads(started_text)
+        self.assertIsInstance(started, dict)
+        self.assertEqual(result_structured_content(started_result), None)
+        self.assertNotIn('\n  ', started_text)
+        self.assertEqual(started['decision'],
+                         runtime_mcp.current_decision(started['session_id']))
+
+        current_result = asyncio.run(runtime_mcp.server.call_tool(
+            'current_decision', {'session_id': started['session_id']}))
+        current_text = result_text(current_result)
+        current = json.loads(current_text)
+        self.assertIsInstance(current, dict)
+        self.assertEqual(result_structured_content(current_result), None)
+        self.assertEqual(current, started['decision'])
+        self.assertTrue(any('\u4e00' <= char <= '\u9fff' for char in current_text))
+        self.assertNotIn('\\u', current_text)
+
+        action = current['legal_actions'][0]
+        submitted_result = asyncio.run(runtime_mcp.server.call_tool(
+            'submit_action', {'session_id': started['session_id'],
+                              'decision_id': current['decision_id'],
+                              'action': action}))
+        submitted_text = result_text(submitted_result)
+        submitted = json.loads(submitted_text)
+        self.assertIsInstance(submitted, dict)
+        self.assertEqual(result_structured_content(submitted_result), None)
+        self.assertNotIn('\n  ', submitted_text)
+        self.assertTrue(submitted['ok'])
+        self.assertEqual(submitted['accepted_action'], action)
+        self.assertEqual(submitted['decision'],
+                         runtime_mcp.current_decision(started['session_id']))
 
 
 class TestHealthEndpoint(RuntimeMcpTestCase):
