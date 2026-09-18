@@ -339,21 +339,22 @@ class TestRuntimePurchasePlanGeneration(unittest.TestCase):
 
     def test_enumerates_zero_one_and_two_card_plans(self):
         _, _, plans = self.plans_for(
-            ['YH-01', 'YK-01'], {'H': 2, 'K': 1, 'M': 1})
+            ['YH-01', 'YK-01'], {'H': 2, 'K': 1, 'M': 1, 'R': 1})
         card_sets = {tuple(plan['card_ids']) for plan in plans}
         self.assertEqual(card_sets, {
             (), ('YH-01',), ('YK-01',), ('YH-01', 'YK-01')})
 
     def test_keeps_different_payment_outcomes_for_same_cards(self):
-        _, _, plans = self.plans_for(['YH-01'], {'H': 2, 'GL': 3})
+        _, _, plans = self.plans_for(['YH-01'], {'H': 2, 'R': 1, 'GL': 3})
         bought = [p for p in plans if p['card_ids'] == ['YH-01']]
         self.assertEqual(len(bought), 2)
         self.assertEqual({tuple(sorted(p['remaining_resources'].items()))
                           for p in bought},
-                         {(('GL', 3),), (('H', 2),)})
+                         {(('GL', 3), ('H', 1)),
+                          (('H', 2), ('R', 1))})
 
     def test_equivalent_solver_paths_are_deduplicated(self):
-        _, _, plans = self.plans_for(['YH-01'], {'H': 2})
+        _, _, plans = self.plans_for(['YH-01'], {'H': 2, 'R': 1})
         bought = [p for p in plans if p['card_ids'] == ['YH-01']]
         self.assertEqual(len(bought), 1)
 
@@ -432,7 +433,7 @@ class TestRuntimePurchasePlanGeneration(unittest.TestCase):
 
     def test_repeated_generation_is_pure_and_plan_ids_are_stable(self):
         game, pool = self.make_game(['YH-01', 'YK-01'],
-                                    {'H': 2, 'K': 1, 'M': 1}, ['C04'])
+                                    {'H': 2, 'K': 1, 'M': 1, 'R': 1}, ['C04'])
         before = (list(game.market), list(game.hand), list(game.dice),
                   dict(game.stable_pool), game.rng.getstate())
         first = game.enumerate_legal_purchase_plans(pool)
@@ -495,7 +496,7 @@ class TestRuntimePurchasePlanGeneration(unittest.TestCase):
         self.assertEqual({tuple(p['card_ids'])
                           for p in game.enumerate_legal_purchase_plans(pool)}, {()})
 
-        _, _, plans = self.plans_for(['YH-01'], {'H': 2}, ['YE-01'])
+        _, _, plans = self.plans_for(['YH-01'], {'H': 2, 'R': 1}, ['YE-01'])
         self.assertTrue(all(not p['consumed_event_card_ids'] for p in plans))
 
 
@@ -597,7 +598,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_one_card_plan_executes_exact_remaining_resources(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'K', 'M'], ['YH-01', 'YK-01'])
+            ['H', 'K', 'R', 'M'], ['YH-01', 'YK-01'])
         plan = self.find_plan(session, ('YK-01',))
         rng_state = session.game.rng.getstate()
         result = self.submit_plan(session, ready, plan)
@@ -610,7 +611,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_two_card_plan_removes_only_bought_cards(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'K', 'M'], ['YH-01', 'YK-01', 'YE-01'])
+            ['H', 'K', 'R', 'M'], ['YH-01', 'YK-01', 'YE-01'])
         plan = self.find_plan(session, ('YH-01', 'YK-01'))
         result = self.submit_plan(session, ready, plan)
         self.assertTrue(result['ok'])
@@ -648,7 +649,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_invalid_plan_id_and_state_mismatch_have_no_side_effects(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'K', 'M'], ['YH-01', 'YK-01'])
+            ['H', 'K', 'R', 'M'], ['YH-01', 'YK-01'])
         before = self.snapshot(session)
         invalid = session.submit_action(ready['decision_id'],
                                         {'plan_id': 'purchase_not_real'})
@@ -719,7 +720,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_hkr_placement_top_and_bury(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'])
+            ['H', 'R', 'BL', 'BL'], ['YH-01'])
         session.game.cv['H'] = ['YH-03']
         plan = self.find_plan(session, ('YH-01',))
         placed = self.submit_plan(session, ready, plan)
@@ -735,7 +736,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertEqual(session.game.cv['H'], ['YH-03', 'YH-01'])
 
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'])
+            ['H', 'R', 'BL', 'BL'], ['YH-01'])
         session.game.cv['H'] = ['YH-03']
         plan = self.find_plan(session, ('YH-01',))
         decision = self.submit_plan(session, ready, plan)['decision']
@@ -746,7 +747,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_multiple_hkr_cards_are_placed_one_at_a_time_in_stable_order(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'K'], ['YH-01', 'YH-02'])
+            ['H', 'H', 'K', 'R'], ['YH-01', 'YH-02'])
         plan = self.find_plan(session, ('YH-01', 'YH-02'))
         first = self.submit_plan(session, ready, plan)['decision']
         self.assertEqual(first['card_id'], 'YH-01')
@@ -779,7 +780,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_cv_stays_pending_until_debuff_protection_is_resolved(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'],
+            ['H', 'R', 'BL', 'BL'], ['YH-01'],
             extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         self.assertEqual(session.game.bad_luck_accumulator, 5)
         plan = self.find_plan(session, ('YH-01',))
@@ -794,7 +795,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_below_threshold_skips_debuff_and_enters_placement(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'])
+            ['H', 'R', 'BL', 'BL'], ['YH-01'])
         plan = self.find_plan(session, ('YH-01',))
         result = self.submit_plan(session, ready, plan)
         self.assertEqual(result['decision']['kind'], 'placement_decision')
@@ -803,7 +804,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_five_accumulated_bad_luck_without_c06_draws_once_next_turn_active(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'], stable={'BL': 2},
+            ['H', 'R', 'BL', 'BL'], ['YH-01'], stable={'BL': 2},
             prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         result = self.submit_plan(session, ready, plan)
@@ -817,7 +818,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_c08_use_cancels_without_draw_or_adversity_history(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'],
+            ['H', 'R', 'BL', 'BL'], ['YH-01'],
             extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
@@ -833,7 +834,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_c06_skip_keeps_card_and_draws_debuff_before_placement(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'],
+            ['H', 'R', 'BL', 'BL'], ['YH-01'],
             extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
@@ -861,7 +862,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_debuff_result_reports_c08_as_cancel_source(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'],
+            ['H', 'R', 'BL', 'BL'], ['YH-01'],
             extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
@@ -880,7 +881,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_debuff_result_reports_mh02_as_cancel_source(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'], stable={'BL': 1},
+            ['H', 'R', 'BL', 'BL'], ['YH-01'], stable={'BL': 1},
             prior_bad_luck=3)
         session.game.cv['H'] = ['MH-02']
         plan = self.find_plan(session, ('YH-01',))
@@ -901,7 +902,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_debuff_result_has_no_cancel_source_when_skipped(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'],
+            ['H', 'R', 'BL', 'BL'], ['YH-01'],
             extra_hand=['C08'], stable={'BL': 1}, prior_bad_luck=3)
         plan = self.find_plan(session, ('YH-01',))
         protection = self.submit_plan(session, ready, plan)['decision']
@@ -919,7 +920,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_multiple_placements_follow_debuff_and_protection_actions_are_safe(self):
         session, ready = self.ready_session(
-            ['H', 'H', 'H', 'K'], ['YH-01', 'YH-02'],
+            ['H', 'H', 'K', 'R'], ['YH-01', 'YH-02'],
             extra_hand=['C08'], stable={'BL': 3}, prior_bad_luck=5)
         plan = self.find_plan(session, ('YH-01', 'YH-02'))
         protection = self.submit_plan(session, ready, plan)['decision']
@@ -1377,7 +1378,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         session, decision = self.next_turn_session(
             stacks=[('H', ['YH-01'])], debuff='D06')
         self.assertEqual(decision['kind'], 'post_roll_decision')
-        self.assertEqual(decision['stable_resources'], {'H': 1})
+        self.assertEqual(decision['stable_resources'], {'H': 1, 'R': 1})
         self.assertEqual(decision['normal_rerolls_available'], 1)
         before = self.snapshot(session)
         again = session.current_decision()
@@ -1468,7 +1469,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_turn2_nonempty_plan_cannot_reenter_purchase_window(self):
         session, ready = self.turn2_purchase_session(
-            ['H', 'H', 'K', 'M'], ['YH-01', 'YK-01', 'YR-01'])
+            ['H', 'K', 'R', 'M'], ['YH-01', 'YK-01', 'YR-01'])
         plan = self.find_plan(session, ('YH-01',))
         result = self.submit_plan(session, ready, plan)
         self.assertTrue(result['ok'])
@@ -1484,7 +1485,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
 
     def test_turn2_cannot_exceed_two_normal_cards_per_turn(self):
         session, ready = self.turn2_purchase_session(
-            ['H', 'H', 'K', 'M'], ['YH-01', 'YK-01', 'YR-01'])
+            ['H', 'K', 'R', 'M'], ['YH-01', 'YK-01', 'YR-01'])
         self.assertTrue(all(len(p['card_ids']) <= 2
                             for p in session._purchase_plan_cache))
         plan = self.find_plan(session, ('YH-01', 'YK-01'))
@@ -1596,7 +1597,7 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
         self.assertEqual(final['previous_turn_result']['completed_turn'], 3)
 
     def test_single_payment_target_executes_directly_in_one_stage(self):
-        session, ready = self.ready_session(['H', 'H', 'K', 'M'],
+        session, ready = self.ready_session(['H', 'K', 'R', 'M'],
                                             ['YH-01', 'YK-01'])
         entry = next(t for t in ready['purchase_targets']
                      if t['ordinary_card_ids'] == ['YK-01'])
@@ -2301,7 +2302,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
 
     def test_debuff_protection_decision_exposes_long_term_view(self):
         session, post = self.drafted_session(
-            ['H', 'H', 'BL', 'BL'], market=['YH-01'], extra_hand=['C08'])
+            ['H', 'R', 'BL', 'BL'], market=['YH-01'], extra_hand=['C08'])
         session.game.stable_pool = Counter({'BL': 1})
         session.game.bad_luck_accumulator = 3
         ready = session.submit_action(
@@ -2329,7 +2330,7 @@ class TestRuntimeLongTermView(unittest.TestCase):
 
     def test_placement_decision_exposes_long_term_view(self):
         session, post = self.drafted_session(
-            ['H', 'H', 'K', 'M'], market=['YH-01', 'YK-01'])
+            ['H', 'K', 'R', 'M'], market=['YH-01', 'YK-01'])
         ready = session.submit_action(
             post['decision_id'], {'choice': 'proceed_to_purchase'})['decision']
         plan = next(p for p in session._purchase_plan_cache
@@ -2957,7 +2958,7 @@ class TestMH02DebuffProtection(unittest.TestCase):
     def triggered_session(self, extra_hand=(), stable=None, deck=None):
         """真实购买流触发 Debuff（既有累计 3 + 最终骰面 BL2）。"""
         session, ready = self.ready_session(
-            ['H', 'H', 'BL', 'BL'], ['YH-01'],
+            ['H', 'R', 'BL', 'BL'], ['YH-01'],
             extra_hand=extra_hand, stable=stable, prior_bad_luck=3)
         session.game.cv['H'] = ['MH-02']
         if deck is not None:
@@ -3211,7 +3212,7 @@ class TestOH01DebuffShorten(unittest.TestCase):
         first = session.current_decision()
         second = session.submit_action(first['decision_id'],
                                        {'card_id': 'C12'})['decision']
-        session.game._forced = ['H', 'H', 'BL', 'BL']
+        session.game._forced = ['H', 'R', 'BL', 'BL']
         post = session.submit_action(second['decision_id'],
                                      {'card_id': 'C06'})['decision']
         session.game.market = list(market)
@@ -4068,7 +4069,7 @@ class TestSpectatorRecentEvents(unittest.TestCase):
         first = session.current_decision()
         second = session.submit_action(first['decision_id'], {
             'card_id': 'C12'})['decision']
-        session.game._forced = ['H', 'H', 'BL', 'BL']
+        session.game._forced = ['H', 'R', 'BL', 'BL']
         post_roll = session.submit_action(second['decision_id'], {
             'card_id': 'C06'})['decision']
         session.game.market = ['YH-01']
