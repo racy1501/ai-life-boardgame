@@ -108,3 +108,17 @@
 .event-item { margin:0 0 12px; }
 .event-item b { display:block; color:#627161; font-size:clamp(14px,1.8cqw,19px); font-weight:600; line-height:1.4; }
 .event-item .event-more { display:inline-flex; align-items:center; margin-top:8px; padding:6px 12px; font-size:clamp(11px,1.3cqw,14px); white-space:nowrap; }
+
+/* Childhood history is the detail view itself: keep the CTA obvious and show every effect in full. */
+.childhood-memory { min-width:0; margin:clamp(4px,.6cqw,8px) 0; padding:clamp(7px,.8cqw,10px) clamp(11px,1.35cqw,16px); border:1px solid rgba(117,135,111,.32); border-radius:10px; color:#62765e; background:linear-gradient(145deg,#f4f5e9,#e7efdf); box-shadow:inset 0 1px rgba(255,255,255,.8),0 3px 8px rgba(100,119,85,.13); font:600 clamp(10px,1.2cqw,13px) Georgia,'Microsoft YaHei',sans-serif; line-height:1.25; cursor:pointer; transition:background .15s ease,box-shadow .15s ease,transform .15s ease; }
+.childhood-memory:hover { background:linear-gradient(145deg,#f8f8ed,#e1ecd9); box-shadow:inset 0 1px rgba(255,255,255,.9),0 5px 11px rgba(100,119,85,.18); transform:translateY(-1px); }
+.childhood-memory:active { box-shadow:inset 0 2px 4px rgba(100,119,85,.12); transform:translateY(0); }
+.childhood-memory:focus-visible { outline:2px solid rgba(117,145,105,.55); outline-offset:2px; }
+.childhood-status { position:static; display:table; margin:0 0 7px; padding:3px 8px; border:1px solid rgba(117,135,111,.25); border-radius:999px; background:rgba(239,244,231,.92); color:#71806e; font-size:clamp(11px,1.25cqw,13px); line-height:1.25; }
+.childhood-modal { --board-scale:1.35; height:fit-content; min-height:0; }
+.childhood-modal ul { flex:none; align-self:stretch; }
+.game-card.full-effect-card { height:calc(213px * var(--board-scale,1)); min-height:0; padding:16px; overflow:visible; }
+.game-card.full-effect-card .card-type { font-size:10px; }
+.game-card.full-effect-card h3 { margin-top:12px; font-size:18px; }
+.game-card.full-effect-card .card-effect { display:block; overflow:visible; -webkit-line-clamp:unset; font-size:13px; line-height:1.6; }
+.game-card .card-flavor { margin:10px 0 0; color:#a08f78; font-size:12px; line-height:1.55; }

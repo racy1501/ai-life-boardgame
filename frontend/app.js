@@ -37,19 +37,49 @@ const DICE_ICONS = {
 };
 const DEFAULT_PLAYER_IDENTITY = { name: 'AI玩家', emoji: '🤖' };
 const LOG_DISPLAY_LIMIT = 20;
+const CHILDHOOD_FLAVOR = {
+  C01: '红包拆完先别交给妈妈，今天你真的很有钱。',
+  C02: '你原本只想要一个，结果偏偏抽中了最想要的那个。',
+  C03: '大人问你喜欢哪个，你第一次没有说“都可以”。',
+  C04: '有人陪你绕远路回家，天黑也没那么快。',
+  C05: '第一次离家好几天，世界突然比家门口大了很多。',
+  C06: '“再五分钟”说了很多遍，直到路灯一盏一盏亮起来。',
+  C07: '呛了一口水，抹把脸，还是又爬回了池边。',
+  C08: '你知道只要回头，总会有人站在那里。',
+  C09: '书包忽然轻得不像真的，整个下午都是你的。',
+  C10: '借走的书总要还，可喜欢过的故事不会。',
+  C11: '你问得大人头疼，却真的记住了答案。',
+  C12: '都这么旧了，怎么还是舍不得扔。',
+};
+const CHILDHOOD_SPECTATOR_EFFECT = {
+  C08: '本回合即将遭遇 Debuff 时，可以使用此牌取消这一次。',
+  C09: '掷骰前可以使用；本回合如果遭遇 Debuff，则取消这一次。使用后无论是否触发，都会弃置。',
+};
+const getChildhoodPresentation = (card) => {
+  const isChildhood = card?.type === 'C' || String(card?.card_id || '').startsWith('C');
+  if (!isChildhood) return { card, flavor: null, details: card?.details || {} };
+  const cardId = card.card_id;
+  const effectSummary = CHILDHOOD_SPECTATOR_EFFECT[cardId] || card.effect_summary;
+  return {
+    card: effectSummary ? { ...card, effect_summary: effectSummary } : { ...card },
+    flavor: CHILDHOOD_FLAVOR[cardId] || null,
+    details: cardId === 'C08' || cardId === 'C09' ? {} : (card.details || {}),
+  };
+};
 
 const formatCost = (cost) => typeof cost === 'string' ? cost : Object.entries(cost || {}).map(([symbol, count]) => `${symbol}×${count}`).join(' ') || '—';
 const cardMeta = (type) => TYPE_META[type] || { label: type || 'Card', color: 'work' };
-const renderCard = (card, { fate = false, resume = false, detail = false, showCost = !resume, typeLabel = null, index = 0 } = {}) => {
+const renderCard = (card, { fate = false, resume = false, detail = false, fullEffect = false, flavor = null, showCost = !resume, typeLabel = null, index = 0 } = {}) => {
   const meta = cardMeta(card.type);
-  const classes = fate ? 'game-card fate-card' : `game-card ${resume ? 'resume-card' : 'market-card'} ${detail ? 'detail-card ' : ''}${resume ? card.color : meta.color}`;
+  const classes = fate ? 'game-card fate-card' : `game-card ${resume ? 'resume-card' : 'market-card'} ${detail ? 'detail-card ' : ''}${fullEffect ? 'full-effect-card ' : ''}${resume ? card.color : meta.color}`;
   const footer = fate ? '命运的赠礼' : detail
     ? `<span>成本</span><b>${formatCostChips(card.cost)}</b>${card.vp ? `<span>计分</span><b>+${escapeHtml(card.vp)}</b>` : ''}`
     : `${showCost ? `<span>成本</span><b>${escapeHtml(formatCost(card.cost))}</b>` : ''}${card.vp ? `<span>VP ${escapeHtml(card.vp)}</span>` : ''}`;
   const dataId = card.card_id ? ` data-card-id="${escapeHtml(card.card_id)}"` : '';
-  const effectClass = detail ? 'card-effect card-effect-full' : 'card-effect';
-  const effectHtml = detail ? formatEffectText(card.effect_summary || card.effect) : escapeHtml(card.effect_summary || card.effect || '暂无');
-  return `<article class="${classes}"${dataId}><p class="card-type">${escapeHtml(fate ? 'FATE' : typeLabel || meta.label)}</p><h3>${escapeHtml(card.name || '暂无')}</h3><p class="${effectClass}">${effectHtml}</p>${footer ? `<footer>${footer}</footer>` : ''}</article>`;
+  const effectClass = detail || fullEffect ? 'card-effect card-effect-full' : 'card-effect';
+  const effectHtml = detail || fullEffect ? formatEffectText(card.effect_summary || card.effect) : escapeHtml(card.effect_summary || card.effect || '暂无');
+  const flavorHtml = flavor ? `<p class="card-flavor">${escapeHtml(flavor)}</p>` : '';
+  return `<article class="${classes}"${dataId}><p class="card-type">${escapeHtml(fate ? 'FATE' : typeLabel || meta.label)}</p><h3>${escapeHtml(card.name || '暂无')}</h3><p class="${effectClass}">${effectHtml}</p>${flavorHtml}${footer ? `<footer>${footer}</footer>` : ''}</article>`;
 };
 const renderCardSlots = (selector, cards, slotCount, options = {}) => {
   const visibleCards = cards.slice(0, slotCount);
@@ -103,7 +133,9 @@ const renderDesk = (game, { renderDicePool = true } = {}) => {
   ensureDiceRuleHint();
   displayedResume = game.resume; list('#resume-cards', displayedResume, (card, index) => `<div class="resume-card-wrap">${renderCard(card, { resume: true, showCost: false, index })}<button class="more-button" data-index="${index}" type="button">more <span>→</span></button></div>`);
   displayedChildhood = game.childhood || [];
-  element('#childhood-memory').textContent = `童年回忆 · ${displayedChildhood.length}`;
+  element('#childhood-memory').textContent = displayedChildhood.length
+    ? `点击查看童年牌（${displayedChildhood.length}）`
+    : '点击查看童年牌';
 };
 const renderDemo = () => renderDesk(buildDemoDesk());
 const snapshotToDesk = (snapshot) => {
@@ -125,7 +157,7 @@ const modal = element('#resume-modal');
 const openResume = (card) => { element('#modal-title').textContent = card.type; const held = card.held || []; element('#modal-note').textContent = held.length ? `本类仍持有的履历堆共 ${held.length} 张，按当前堆叠顺序展示，「当前」为顶牌。` : '本类当前没有持有牌。'; element('#modal-cards').innerHTML = held.length ? held.map((item) => `<li>${renderCard({ ...item, type: card.type, color: card.color }, { resume: true, showCost: false })}${item.is_top ? '<span class="current-badge">当前</span>' : ''}</li>`).join('') : '<li class="modal-empty">本类履历堆为空</li>'; modal.showModal(); };
 element('#resume-cards').addEventListener('click', (event) => { const button = event.target.closest('.more-button'); if (button) openResume(displayedResume[button.dataset.index]); }); element('.modal-close').addEventListener('click', () => modal.close()); modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
 const childhoodModal = element('#childhood-modal');
-const openChildhood = () => { element('#childhood-modal-note').textContent = displayedChildhood.length ? '本局 Draft 获得的 3 张童年牌；使用后仍保留在回忆中。' : '童年 Draft 尚未完成。'; element('#childhood-modal-cards').innerHTML = displayedChildhood.length ? displayedChildhood.map((item) => `<li><div class="childhood-status">${escapeHtml(item.status)}</div>${renderCard({ ...item, type: 'C' }, { resume: true, showCost: false })}</li>`).join('') : '<li class="modal-empty">暂无童年牌记录</li>'; childhoodModal.showModal(); };
+const openChildhood = () => { element('#childhood-modal-note').textContent = displayedChildhood.length ? '本局 Draft 获得的童年牌；使用后仍保留在回忆中。' : '童年 Draft 尚未完成。'; element('#childhood-modal-cards').innerHTML = displayedChildhood.length ? displayedChildhood.map((item) => { const presentation = getChildhoodPresentation({ ...item, type: 'C', color: 'childhood' }); return `<li><div class="childhood-status">${escapeHtml(item.status)}</div>${renderCard(presentation.card, { resume: true, fullEffect: true, showCost: false, flavor: presentation.flavor })}</li>`; }).join('') : '<li class="modal-empty">暂无童年牌记录</li>'; childhoodModal.showModal(); };
 element('#childhood-memory').addEventListener('click', openChildhood);
 element('.childhood-modal-close').addEventListener('click', () => childhoodModal.close()); childhoodModal.addEventListener('click', (event) => { if (event.target === childhoodModal) childhoodModal.close(); });
 
@@ -246,17 +278,19 @@ const cardDetailModal = element('#card-detail-modal');
 const openCardDetail = (cardId) => {
   const detail = cardCatalogById && cardCatalogById[cardId];
   if (!detail) return;
-  const meta = cardMeta(detail.type);
+  const presentation = getChildhoodPresentation(detail);
+  const displayCard = presentation.card;
+  const meta = cardMeta(displayCard.type);
   element('#card-detail-kind').textContent = `${meta.zh} · ${meta.label}`;
-  element('#card-detail-title').textContent = detail.name;
-  element('#card-detail-card').innerHTML = renderCard(detail, { detail: true });
+  element('#card-detail-title').textContent = displayCard.name;
+  element('#card-detail-card').innerHTML = renderCard(displayCard, { detail: true, flavor: presentation.flavor });
   const facts = [];
-  if (detail.stage) facts.push(detailRow('阶段', escapeHtml(STAGE_LABELS[detail.stage] || detail.stage)));
-  facts.push(detailRow('成本', formatCostChips(detail.cost)));
-  if (detail.vp) facts.push(detailRow('计分', `+${detail.vp}`));
-  facts.push(detail.effect_summary ? detailRow('效果', formatEffectText(detail.effect_summary)) : detailRow('效果', '暂无摘要', true));
+  if (displayCard.stage) facts.push(detailRow('阶段', escapeHtml(STAGE_LABELS[displayCard.stage] || displayCard.stage)));
+  facts.push(detailRow('成本', formatCostChips(displayCard.cost)));
+  if (displayCard.vp) facts.push(detailRow('计分', `+${displayCard.vp}`));
+  facts.push(displayCard.effect_summary ? detailRow('效果', formatEffectText(displayCard.effect_summary)) : detailRow('效果', '暂无摘要', true));
   element('#card-detail-facts').innerHTML = facts.join('');
-  const rules = Object.entries(detail.details || {}).map(([key, value]) => detailRow(DETAIL_FIELD_LABELS[key] || escapeHtml(key), formatDetailValue(key, value)));
+  const rules = Object.entries(presentation.details).map(([key, value]) => detailRow(DETAIL_FIELD_LABELS[key] || escapeHtml(key), formatDetailValue(key, value)));
   element('#card-detail-rules').innerHTML = rules.join('');
   element('#card-detail-rules').hidden = rules.length === 0;
   cardDetailModal.showModal();

@@ -153,17 +153,17 @@ EVENTS = [
 ]
 
 CHILDHOOD = [
-    _mk('C01', '零钱罐', 'C', None, {}, temp_res=('M', 1)),
-    _mk('C02', '幸运贴纸', 'C', None, {}, temp_gl=1),
-    _mk('C03', '收藏册', 'C', None, {}, discount_type='P'),
-    _mk('C04', '一起回家', 'C', None, {}, temp_res=('R', 1)),
-    _mk('C05', '再玩五分钟', 'C', None, {}, temp_dice=1),
-    _mk('C06', '再来一次', 'C', None, {}, extra_reroll_rounds=1),
-    _mk('C07', '橡皮擦', 'C', None, {}, reroll={'filter': 'non_bl'}),
-    _mk('C08', '紧急联系人', 'C', None, {}, cancel_debuff=True),
-    _mk('C09', '今天请假', 'C', None, {}, pre_cancel_debuff=True),
-    _mk('C10', '先别收走它', 'C', None, {}, protect_market=True),
-    _mk('C11', '借来的笔记', 'C', None, {}, temp_res=('K', 1)),
+    _mk('C01', '压岁钱', 'C', None, {}, temp_res=('M', 1)),
+    _mk('C02', '抽到隐藏款', 'C', None, {}, temp_gl=1),
+    _mk('C03', '我自己选的', 'C', None, {}, discount_type='P'),
+    _mk('C04', '放学一起走', 'C', None, {}, temp_res=('R', 1)),
+    _mk('C05', '夏令营', 'C', None, {}, temp_dice=1),
+    _mk('C06', '玩到天黑', 'C', None, {}, extra_reroll_rounds=1),
+    _mk('C07', '第一次学游泳', 'C', None, {}, reroll={'filter': 'non_bl'}),
+    _mk('C08', '有人来接', 'C', None, {}, cancel_debuff=True),
+    _mk('C09', '今天没作业', 'C', None, {}, pre_cancel_debuff=True),
+    _mk('C10', '借书证', 'C', None, {}, protect_market=True),
+    _mk('C11', '爱问为什么', 'C', None, {}, temp_res=('K', 1)),
     _mk('C12', '阿贝贝', 'C', None, {}, abebe=True),
 ]
 
