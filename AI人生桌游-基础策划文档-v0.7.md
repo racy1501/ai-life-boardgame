@@ -1,16 +1,15 @@
-# AI 人生桌游｜基础策划文档 v0.7（Release Candidate / Runtime / Spectator 同步版）
+# AI 人生桌游｜基础策划文档 v0.7
 
 > 暂定名，后续另取正式游戏名。  
 > 本项目是一款面向 AI 游玩的原创单人桌游，以人生阶段、资源管理与长期目标构成完整游玩体验。
 
-> v0.7 当前正式基线：沿用 V06-final 卡牌与计分结构；持续成本采用“取得后的下一回合开始支付”，通用 2→1 fallback 关闭；普通市场固定总离场3张；Fate 每3个成年回合开放1次命运窗口；Life Goal 为18张。Debuff 已恢复为**跨回合 Bad Luck 累计**：每回合所有重掷与骰面转换结束后，以最终真实骰面中的 BL 数量写入累计；累计与当次 `virtual_bl` 的临时修正合计达到5时触发1张 Debuff，触发后真实累计清零，每回合最多1次。Production Runtime、本地测试 MCP 与 spectator 前端均已跑通真实链路；当前进入 Release Candidate 收尾，剩余重点为最新版规则完整真实试玩、发布包装 / IP 清点与南杉侧正式 MCP / VPS / 游戏站接入。
+> v0.7 正式规则基线：持续成本采用“取得后的下一回合开始支付”，通用 2→1 fallback 关闭；普通市场固定总离场3张；Fate 每3个成年回合开放1次命运窗口；Life Goal 为18张。Debuff 采用**跨回合 Bad Luck 累计**：每回合所有重掷与骰面转换结束后，以最终真实骰面中的 BL 数量写入累计；累计与当次 `virtual_bl` 的临时修正合计达到5时触发1张 Debuff，触发后真实累计清零，每回合最多1次。
 
 > **v0.7 变更摘要（2026-09-17）**
 > - Debuff 触发从“单回合剩余 BL ≥3”改为“最终骰面 BL 跨回合累计，阈值5，触发后清零”。
 > - BL 是否在后续用于 Fate / 其他支付，不影响已经记录的厄运累计。
 > - D08 / F11 的 `virtual_bl` 只参与当次触发判定，不写入跨回合累计。
 > - spectator 已接真实 Runtime：支持实时骰面、机会 / 命运市场、履历堆、Card Detail、最新20条日志、市场规则提示与终局展示；前端不保存第二套规则事实。
-> - 当前正式 checkpoint：`d422692`（`feat: add persistent bad luck debuff buildup`）。
 
 
 ---
@@ -486,16 +485,12 @@ Event 成本按当前资源节奏与卡牌效果统一设定。
 
 ### 10.1 Good Luck
 
-当前继续采用首轮模拟基线：
-
 - 3 个 Good Luck 可以免费取得普通市场 1 张牌。
 - 特殊前置条件仍必须满足。
 - **Good Luck 默认不是 H / K / R / M 的百搭普通资源。** 除非 F10「不靠运气」等明确效果建立例外，否则 1 个 GL 不能直接替代 1 个普通资源成本。
 - 用于普通牌 3 GL 免费取得的 GL、用于 Fate 的 GL 成本、以及被特殊效果转换 / 视为普通资源的骰子 GL，必须遵守正式的资源唯一消费规则，不能重复使用。
 - Fate / Debuff 可以临时改变该门槛或 Good Luck 的骰面处理方式。
 - Bad Luck 默认作为冻结骰，不属于普通资源；只有明确规则允许时才可用于 Fate 成本或被特殊能力处理。
-
-当前模拟未显示 3 Good Luck 明显泛滥，因此暂不调整。
 
 ### 10.2 Debuff / 逆境系统 v0.2
 
@@ -619,8 +614,6 @@ Fate 是独立于普通 CV / Event 的主动人生选择，不是第二套 Debuf
 - AI 再获得 **1 个完整正常回合**，照常进行掷骰、重掷、普通购买、Fate、Debuff、持续成本等正式流程。
 - 该完整回合结束后，设置 `game_over = true` 并进入终局计分。
 
-首轮模拟在当前牌量与市场固定离场 3 的结构下稳定得到约 23 个成年回合。
-
 ## 13. 社会救助
 
 单人模式不设置社会救助机制，也不额外引入替代补偿机制。
@@ -657,9 +650,9 @@ Fate 是独立于普通 CV / Event 的主动人生选择，不是第二套 Debuf
 
 主题短句可以作为美术 / 氛围文案存在，但不能代替正式计分规则。
 
-### 14.2 当前 18 张 Life Goal 候选池 v0.3
+### 14.2 18 张 Life Goal
 
-当前目标池为 18 张。原 16 张继续保留，并新增 2 张围绕 Fate / Debuff / Event 的目标。V06-final 已完成5策略×1000局正式模拟；LG17 / LG18 当前分值仍保留为 +3 / +4 的既有公式，暂不为了静态均分单独调参，留待真实模型试玩观察其导航感与趣味性。
+当前目标池为 18 张，其中 LG17 / LG18 的计分公式分别为 +3 / +4。
 
 | # | Life Goal | 当前候选计分方式 |
 |---|---|---|
@@ -704,21 +697,13 @@ Fate 是独立于普通 CV / Event 的主动人生选择，不是第二套 Debuf
 
 本游戏的牌不是开放商店：机会市场会流动，购买又受骰子结果与资源条件限制。因此 Life Goal 的平衡不能只看纸面公式。
 
-后续正式平衡必须在真实游戏环境中同时纳入：
+正式平衡应同时纳入：
 
 1. **市场出现随机性**：目标需要的牌是否真的会在可行动窗口出现。
 2. **市场流动 / 淘汰压力**：看到目标牌后，是否可能因为来不及购买而永久错过。
 3. **骰子与资源随机性**：出现了想要的牌，不代表当回合一定买得起。
 4. **牌池供给量与阶段分布**：某类牌数量、成本与出现阶段会直接改变目标可达性。
 5. **两张目标同时竞争购买机会与资源**：单张目标可追，不代表双目标组合仍然可追。
-
-正式模拟时至少比较：
-
-- 不主动追该目标时的自然得分分布。
-- 明确追该目标时的得分分布与提升幅度。
-- 目标分的地板、常见区间与高位区间。
-- 双目标组合的协同、资源竞争与可达性。
-- 不同人生阶段与牌池结构对目标的限制。
 
 判断重点不是“这张目标能否完成”，因为当前 Life Goal 为连续计分；更准确的问题是：
 
@@ -799,7 +784,6 @@ AI 为了分数优化选择，本身就是桌游游玩的一部分。真正需�
    - 多数财产以卡面分为主要价值；带较强持续能力的财产通常应牺牲部分终局分。
    - 财产终局分随人生阶段总体提高，使青年“小资产”与中老年“大成果”形成成长曲线。
    - 高终局分应主要来自较高投入，不设计“便宜、高分、强能力”同时存在的万能财产。
-   - 具体原创财产分值仍未定稿。
 
 3. **工作：引擎型履历**
    - 不设置统一的“工作张数基础分”。
@@ -811,7 +795,7 @@ AI 为了分数优化选择，本身就是桌游游玩的一部分。真正需�
    - 名称与计分公式从开局公开。
    - 两张同时生效，终局分直接加入 Total Score。
    - 不增加“完成 / 未完成”、隐藏档位、百分比完成度或二次换算层。
-   - 当前目标池为 18 张候选，具体分值继续结合真实模型试玩与可达性数据观察。
+   - 当前目标池为 18 张。
 
 5. **真实经历的 Debuff：固定加分层**
    - 每张真实经历过的 Debuff 终局 +1 分。
@@ -893,21 +877,14 @@ AI 为了分数优化选择，本身就是桌游游玩的一部分。真正需�
 
 Health / Knowledge / Relationship 仍应在老年市场中拥有真实购买力，避免玩法退化成“Money 引擎 → 购买高分财产”的单线收割。
 
-### 17.2 稀有路线锁定与测试方法
+### 17.2 稀有路线锁定
 
 路线锁定可以保留为极少量特殊机制，但：
 
 - 不设“每阶段必须有几张”的配额。
 - 不为了制造人生感强行添加。
 - 只有当某个主题天然意味着“选择即放弃另一条路线”时才考虑。
-- 当前 63 张牌池不因为这条原则回头硬塞路线锁定牌。
-
-后续平衡 / 策略测试可加入**固定随机种子对比局**：
-
-- 固定同一牌库顺序、骰子随机与其他正式随机源。
-- 让多个独立测试 Agent 在相同命运输入下分别完成一局。
-- 对比最终履历、目标取向、资源路线与关键选择。
-- 该方法用于观察策略空间与回归差异，不属于正式游戏规则，也不要求特定人格 Agent 参与。
+- 不为了这条原则额外添加路线锁定牌。
 
 
 ---
@@ -1049,7 +1026,7 @@ Payload Slim v1 进一步锁定两个展示原则：
 
 ### 19.7 Just-in-Time（JIT）规则提示原则
 
-真实模型黑盒试玩已经确认：即使后台合法性完全正确，AI 仍可能因为“只看到机器字段或状态变化、看不到规则语义”而形成错误理论，并据此连续多回合做出错误策略。因此玩家侧规则信息采用 **按需、首次相关、短说明** 的 JIT 方向，而不是开局一次塞入完整说明书。
+即使后台合法性完全正确，AI 仍可能因为“只看到机器字段或状态变化、看不到规则语义”而形成错误理论。因此玩家侧规则信息采用 **按需、首次相关、短说明** 的 JIT 方向，而不是开局一次塞入完整说明书。
 
 正式原则：
 
@@ -1063,106 +1040,3 @@ Payload Slim v1 进一步锁定两个展示原则：
 - 当前 active Fate 与 current Debuff 在相关策略节点应暴露**身份 + 简短正式效果**；不能只让 AI 从骰子数、合法购买列表或成本变化倒推原因。
 
 JIT 的目标不是“教模型背规则”，而是让 AI 在做当前选择时拥有一个桌游玩家理应已经知道的最小充分信息。
-
----
-
-# 当前运行状态
-
-当前规则、卡牌与终局计分已接入 Production Runtime、本地测试 MCP 与 spectator。正式运行中，Engine、Simulator 与 Runtime 共用同一套规则与状态来源。
-
-## Production Runtime / 本地 MCP 已验证
-
-截至本次同步，正式 Runtime 已不再是“下一阶段计划”，而是已经进入可玩黑盒阶段：
-
-1. ✅ Childhood Draft：3选1 → 重新抽2选1 → 随机第3张；最终3张与两张 Life Goal 均进入正式状态，并在首个成年决策明确可见。
-2. ✅ 成年主链：pre-roll → 首骰 → 重掷 / 特殊骰操作 → 普通 / Fate 联合购买 → Debuff → placement → maintenance → 市场清理 → closeout → 下一回合。
-3. ✅ Fate Window、F01 / F03 立即选择、F10 支付语义、Debuff 生命周期、持续成本与最终回合已接入正式 Runtime。
-4. ✅ 终局 `game_over` 直接返回官方 score 分项，与正式评分函数共源。
-5. ✅ 极薄本地 CLI 与本地测试 MCP 已跑通；MCP 目前只负责 `start_game / current_decision / submit_action` 的薄透传，不把规则复制进工具层。
-6. ✅ MCP 已关闭 SDK 的结构化 + 文本双重返回，避免同一 payload 在传输层重复消耗上下文。
-7. ✅ 购买交互已完成“目标 → 必要时再选支付”的两阶段化；seed 20260913 实测 purchase_ready 总字节由约 431 KB 降到约 230 KB，最大单 payload 由约 68.9 KB 降到约 18.3 KB。
-8. ✅ `previous_turn_result` 已改为每个 closeout 结果在下一回合最多暴露一次；同 seed 实测约 98.8 KB → 29.3 KB。
-9. ✅ `pre_roll_decision` 无关布尔字段已改为可省略，减少模型因 action 形状过严而产生的无意义失败。
-10. ✅ YE-03「再想一下」已明确为“额外正常重掷轮”，消除 `extra_round` 被误解成“额外游戏回合”的歧义。
-11. ✅ YK-05「学习方法」R→K 的每回合主动转换已从 Simulator 内联逻辑抽成共享正式能力并接入 Runtime，不新增额外 MCP 往返。
-12. ✅ 核心 JIT 已接入：`resource_lifetime`、GL/BL、placement、maintenance、Fate active slot、`market_flow` 与一次性 `score_overview` 均在首次相关窗口展示；C01～C11 用后弃置，以及 YE-01 / YE-02 用后弃置、未用临时资源随本次结算作废，均已在玩家侧可见。
-13. ✅ 终局存在 active flex 时，Production Runtime 会在 `game_over` 前要求真实 AI 提交 `final_flex_designation`；该指定统一用于两张 Life Goal。Simulator 未显式指定时仍使用 `best_designation` oracle，此为后台模拟路径而非玩家规则。
-14. ✅ MH-02「年度体检」与 OH-01「长期健康管理」均已完成真实模型定向黑盒：MH-02 能在 `debuff_protection_decision` 中被模型自主选择并取消触发，能力使用后卡牌继续 active；OH-01 能在 `debuff_shorten_decision` 中由模型自主 `pay / skip`，支付 H×1 后当前 Debuff 持续时间减少1回合、最低1回合。
-15. ✅ OH-01 缩短窗口已补明确玩家侧 `effect_hint`，不再要求模型仅凭 `duration_before / duration_after` 自行反推效果。
-16. ✅ Debuff 取消回执不再硬编码 `cancelled_by_c06`，统一改为 `cancelled_by_card_id`，C08 / MH-02 等实际取消来源可准确回传；未取消时来源为空。
-17. ✅ 购买第一层多支付选项已补 `payment_sources`，让 Childhood 折扣、Childhood / Event 临时资源等“短付来源”在第一层即可解释；`payment_method / payment_summary / payment_sources` 的机制分类已统一校准。
-18. ✅ 已完成 Runtime payload 成本审计：3 个脚本回放 seed 全部完整到 `game_over`，原始 Runtime 玩家侧输出约 256～392 KB / 局，最大单 payload 为 `purchase_ready` 第一层约 14.4 KB；主要膨胀来自目标组合枚举与重复目标列表，不是卡牌文本本身。
-19. ✅ Payload Slim v1 已落地：去除 `purchase_ready` L1 重复 `legal_actions`，成年阶段移除重复 `childhood_draft_result` 并只保留仍可用 Childhood + `effect_summary`。同路径 3 seed 回放实测整局 Runtime payload 合计下降约 **13.5%**，最肥 L1 峰值约 **14.4 KB → 10.9 KB（-24%）**。
-20. ✅ Slim v1 已通过独立新窗口真实模型 smoke：模型在不知道旧协议的前提下，仅凭 `purchase_targets` 即可一次正确提交 L1 购买目标；Childhood 消耗后正确从成年 payload 消失，剩余能力可读。
-21. ✅ spectator 已接真实 Runtime snapshot：HTTP bridge 默认 `127.0.0.1:8765`，前端只读展示正式状态，不建立第二事实源；已完成骰子动画、玩家身份卡、机会 / 命运市场、履历堆、Card Detail、最新20条日志、市场规则提示与多项真实试玩 UI 修复。
-22. ✅ Windows 重复 spectator bridge 已改为端口冲突 fail-fast，避免 shadow bind；session 仍仅存在 MCP / Runtime 进程内存中，当前不做持久化。
-23. ✅ Debuff v0.2 已正式实现：`Game.bad_luck_accumulator` 为唯一累计事实源，Runtime / Simulator 共用 Engine 判定；阈值5、触发清零、virtual_bl 临时判定与幂等记录均已覆盖测试。相关 `simulation/tests` 全量 **381 passed / 3 skipped**。
-
-## 真实模型黑盒试玩已确认
-
-- 已完成 **四轮**真实 Production Runtime 完整黑盒，均推进到 `game_over`；第四轮为当前最新版本的自然终验，不指定 seed、不预置市场 / 骰面 / active / Debuff，全程只通过正式 `start_game / current_decision / submit_action` 推进。
-- 第一轮主要暴露玩家侧规则信息不足；第二轮开始稳定进行策略构筑并暴露 final flex、`score_overview`、临时资源语义等缺口；第三轮主链基本稳定并以 108 分完整通关。
-- 第四轮完整运行 **23 个成年回合、134 分**，Life Goal、Curve A、P vp、Debuff 与 final flex 的后台正式计分和模型口算逐项一致；`final_flex_designation` 自然触发并被模型正确使用。
-- 第四轮自然遇到 C08 / MH-02 Debuff 保护、OH-04 特殊重掷、3 GL 免费取得、Fate 单槽、H/K/R placement、P/W 自动置顶、Event 临时资源、最终完整回合等多条正式链路，均未出现阻断。
-- 第四轮发现的两个确定玩家侧问题已经修复：① Debuff 取消来源不再误写成 C06；② `purchase_ready` 第一层多支付方案现在可直接看到折扣 / 临时资源来源。随后又修正了 Childhood 折扣被误归类为临时资源、`payment_method` 机制分类不一致的问题。
-- Payload Slim v1 完成后，又在独立新窗口做了短程真实模型 smoke；模型无需旧 `legal_actions` 即可理解 `purchase_targets` 并连续两回合正确提交购买，未发现新的玩家侧信息缺口。
-- 后续 ZCode 已通过现有 `ai_life_boardgame` MCP 真实开局并连续游玩约10回合；WorkBuddy 也通过同一薄 MCP 完整跑通一局至第23回合 `game_over`，正式总分129。两次均证明 `AI → MCP → GameSession → Engine / Runtime → spectator` 主链可真实运行。
-- WorkBuddy / ZCode 的 session 均为进程内状态；宿主模式切换导致 stdio MCP 进程重启时旧 session 消失属于当前既定非持久化边界，不作为 Runtime 规则 Bug。
-- **注意：上述完整23回合真人工 Agent 黑盒发生在 Debuff v0.2 跨回合累计正式落地之前。v0.2 已通过全量测试与定向模拟，但 Release Candidate 仍需再做 1 局最新版规则的完整真实 AI 终验。**
-- Production Runtime 主链与 spectator 真实链路均已 GREEN；当前不再追加无目标的重复黑盒。由于 Debuff v0.2 是最新正式规则变更，发布前仅保留 **1 局最新版完整真实 AI 终验**，通过后进入交付收口。
-- 所有试玩分数与路线仅用于 Runtime 信息、接口与可理解性验收；F02、GL 免费取得频率、Fate 竞争力、F07 强度等仍只作为平衡观察，不据单局直接调参。
-
-## 当前仍待收口
-
-1. **最新版规则完整真实终验**：Debuff v0.2 已通过全量测试与定向模拟，但尚未在正式跨回合累计规则下再跑 1 局完整真实 AI `start_game → game_over`。这是当前 Release Candidate 的首要验收项。
-2. **发布包装**：检查 README、启动命令、MCP 最小使用说明、spectator 打开方式与依赖；确保南杉拉取仓库后能按文档启动。
-3. **发布内容整理**：检查 README、启动命令、MCP 最小使用说明与 spectator 打开方式。
-4. **规则数值保持冻结**：后续试玩用于确认信息呈现与规则执行，不在本阶段追加数值调整。
-5. **正式 MCP / VPS / 游戏站接入**：本地测试 MCP 与 spectator 已稳定；正式对外封装、VPS 部署与南杉游戏站账户 / 宿主接入由南杉侧完成。
-6. **GitHub 最终同步**：完成上述 Release Candidate 验收后再 push，并以明确 commit hash 交接；当前 session 持久化不作为发布阻塞项。
-
----
-
-# 当前开发阶段
-
-当前阶段：
-
-> **当前已进入 Release Candidate 收尾：Production Runtime、本地薄 MCP、spectator 真实链路均已可玩；Debuff v0.2 跨回合厄运累计已正式落地并通过全量测试。发布前只保留最新版完整真实 AI 终验、文档 / README 包装、公开仓库 IP 清点与最终 push；南杉负责后续正式 MCP、VPS 与游戏站接入。**
-
-数学结构与大规模数值平衡继续冻结。当前优先级不是继续调牌，而是保证：
-
-1. AI 通过正式 Runtime 能实际发动所有已设计能力；
-2. AI 在做选择时能获得最小充分、无歧义的信息；
-3. Engine / Simulator / Runtime 共用正式规则，不产生第二事实源；
-4. MCP 保持薄、稳定，不把后台 solver 与完整说明书搬进上下文。
-
-已经完成的开发链：
-
-1. ✅ Simulation 数值验证与规则基线
-2. ✅ Production Runtime 成年主链
-3. ✅ Runtime Fate / Debuff / placement / maintenance / closeout / scoring
-4. ✅ 极薄本地 CLI
-5. ✅ 极薄本地测试 MCP
-6. ✅ 四轮真实 Agent 完整黑盒 + 当前版本 GREEN 收口
-7. ✅ 两阶段购买与支付 provenance
-8. ✅ 开局 Life Goal / Childhood Draft 语义闭环
-9. ✅ 全牌池 AI 可理解性审计
-10. ✅ 特殊主动能力 Runtime 接入与真实模型覆盖（YK-05、MH-02、OH-01）
-11. ✅ 核心 JIT rules v1 + `score_overview / resource_lifetime / market_flow` 等玩家侧提示
-12. ✅ Debuff 取消来源、购买来源与 `payment_method` 展示语义收口
-13. ✅ Runtime payload 成本审计 + Payload Slim v1（整局约 -13.5%，最肥 L1 峰值约 -24%）
-14. ✅ Slim v1 独立新窗口真实模型 smoke
-15. ✅ spectator 真实 Runtime 围观前端主链
-16. ✅ Debuff v0.2 跨回合 BL 累计（阈值5）+ Runtime / Simulator 共源
-17. ⏳ 最新规则完整真实 AI 终验
-18. ⏳ README / 发布包装 / IP 清点
-19. ⏳ 最终 push 与南杉正式 MCP / VPS / 游戏站接入
-
-正式架构边界继续坚持：
-
-> **AI负责选择，系统负责裁决。AI负责策略，后台负责算账。**  
-> **机制可以丰富，决策窗口必须克制；后台可以复杂，MCP接口必须简单。**  
-> **规则信息按需出现，不让 AI 猜，也不让上下文背整本说明书。**  
-> **复杂不等于好玩。**
-
----
