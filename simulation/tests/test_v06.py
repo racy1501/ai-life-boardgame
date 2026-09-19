@@ -305,7 +305,7 @@ class TestFateV06(unittest.TestCase):
         g.market = ['YH-01', 'YK-03']
         g.market_entry = {cid: 0 for cid in g.market}
         g.fate_market = ['F01']
-        g.pool = Counter({'H': 2, 'K': 2, 'GL': 1})
+        g.pool = Counter({'H': 2, 'K': 2, 'R': 1, 'GL': 1})
         plans = g.joint_plans()
         self.assertIn((('YH-01', 'YK-03'), 'F01'), plans)
         self.assertFalse(any(len(action[0]) > 2 for action in plans))
@@ -336,7 +336,7 @@ class TestFateV06(unittest.TestCase):
         g.market = ['YH-01', 'YK-03']
         g.market_entry = {cid: 0 for cid in g.market}
         g.fate_market = ['F01']
-        g.pool = Counter({'H': 2, 'K': 2, 'GL': 1})
+        g.pool = Counter({'H': 2, 'K': 2, 'R': 1, 'GL': 1})
         plan = g._joint_plan(('YH-01', 'YK-03'), 'F01')
         self.assertIsNotNone(plan)
         g.execute_joint((('YH-01', 'YK-03'), 'F01'), plan)
@@ -586,7 +586,7 @@ class TestFateV06(unittest.TestCase):
         g.pool = Counter({'H': 1, 'GL': 2})
         plan = g._joint_plan(('YH-01',), 'F01')
         self.assertIsNotNone(plan)
-        self.assertEqual(plan['f10_dice_gl_conversions'], [{'resource': 'H'}])
+        self.assertEqual(plan['f10_dice_gl_conversions'], [{'resource': 'R'}])
         self.assertEqual(plan['fate_payment']['spent_resources'], {'GL': 1})
         g.execute_joint((('YH-01',), 'F01'), plan)
         self.assertEqual(g.dice_gl_flexible, 0)
@@ -842,9 +842,9 @@ class TestV06CardEffects(unittest.TestCase):
     def test_debuff_cost_block_event_reroll_and_gl_threshold_effects(self):
         g = make_v06()
         activate_debuff(g, 'D01')
-        g.pool = Counter({'H': 2})
+        g.pool = Counter({'H': 1, 'R': 1})
         self.assertIsNone(g.try_acquire(('YH-01',)))
-        g.pool['H'] = 3
+        g.pool['H'] = 2
         self.assertIsNotNone(g.try_acquire(('YH-01',)))
 
         activate_debuff(g, 'D05')
@@ -881,9 +881,9 @@ class TestV06CardEffects(unittest.TestCase):
         self.assertFalse(any(len(p) == 2 for p in g.affordable_plans()))
 
         activate_fate(g, 'F08')
-        g.pool = Counter({'H': 2})
+        g.pool = Counter({'H': 1, 'R': 1})
         self.assertIsNone(g.try_acquire(('YH-01',)))
-        g.pool = Counter({'H': 3})
+        g.pool = Counter({'H': 2, 'R': 1})
         self.assertIsNotNone(g.try_acquire(('YH-01',)))
         g.pool = Counter({'K': 1, 'M': 1})
         self.assertIsNotNone(g.try_acquire(('YK-01',)))

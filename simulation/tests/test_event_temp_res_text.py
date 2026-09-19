@@ -37,10 +37,10 @@ class TestEventTempResText(unittest.TestCase):
             '使用后本次购买结算临时提供 M×1；一次性手牌：实际使用后弃置')
         self.assertEqual(
             _card_effect_summary(CARDS['C03']),
-            '使用后本次购买结算临时提供 R×1；一次性手牌：实际使用后弃置')
+            '取得 P 类牌时，其成本中 1 个普通符号 -1；一次性手牌：实际使用后弃置')
         self.assertEqual(
             _card_effect_summary(CARDS['C10']),
-            '取得 P 类牌时，其成本中 1 个普通符号 -1；一次性手牌：实际使用后弃置')
+            '使用后本次市场清理可保护 1 张牌不被淘汰；一次性手牌：实际使用后弃置')
         for cid in ('C01', 'C03'):
             self.assertNotIn('未用部分', _card_effect_summary(CARDS[cid]))
 
