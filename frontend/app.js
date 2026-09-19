@@ -54,6 +54,7 @@ const CHILDHOOD_FLAVOR = {
 const CHILDHOOD_SPECTATOR_EFFECT = {
   C08: '本回合即将遭遇 Debuff 时，可以使用此牌取消这一次。',
   C09: '掷骰前可以使用；本回合如果遭遇 Debuff，则取消这一次。使用后无论是否触发，都会弃置。',
+  C12: '正常重掷时，可以指定 1 颗被冻结的 BL 骰一并解冻并重掷；每局一次。',
 };
 const getChildhoodPresentation = (card) => {
   const isChildhood = card?.type === 'C' || String(card?.card_id || '').startsWith('C');
@@ -63,7 +64,7 @@ const getChildhoodPresentation = (card) => {
   return {
     card: effectSummary ? { ...card, effect_summary: effectSummary } : { ...card },
     flavor: CHILDHOOD_FLAVOR[cardId] || null,
-    details: cardId === 'C08' || cardId === 'C09' ? {} : (card.details || {}),
+    details: ['C08', 'C09', 'C12'].includes(cardId) ? {} : (card.details || {}),
   };
 };
 
@@ -157,7 +158,11 @@ const modal = element('#resume-modal');
 const openResume = (card) => { element('#modal-title').textContent = card.type; const held = card.held || []; element('#modal-note').textContent = held.length ? `本类仍持有的履历堆共 ${held.length} 张，按当前堆叠顺序展示，「当前」为顶牌。` : '本类当前没有持有牌。'; element('#modal-cards').innerHTML = held.length ? held.map((item) => `<li>${renderCard({ ...item, type: card.type, color: card.color }, { resume: true, showCost: false })}${item.is_top ? '<span class="current-badge">当前</span>' : ''}</li>`).join('') : '<li class="modal-empty">本类履历堆为空</li>'; modal.showModal(); };
 element('#resume-cards').addEventListener('click', (event) => { const button = event.target.closest('.more-button'); if (button) openResume(displayedResume[button.dataset.index]); }); element('.modal-close').addEventListener('click', () => modal.close()); modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
 const childhoodModal = element('#childhood-modal');
-const openChildhood = () => { element('#childhood-modal-note').textContent = displayedChildhood.length ? '本局 Draft 获得的童年牌；使用后仍保留在回忆中。' : '童年 Draft 尚未完成。'; element('#childhood-modal-cards').innerHTML = displayedChildhood.length ? displayedChildhood.map((item) => { const presentation = getChildhoodPresentation({ ...item, type: 'C', color: 'childhood' }); return `<li><div class="childhood-status">${escapeHtml(item.status)}</div>${renderCard(presentation.card, { resume: true, fullEffect: true, showCost: false, flavor: presentation.flavor })}</li>`; }).join('') : '<li class="modal-empty">暂无童年牌记录</li>'; childhoodModal.showModal(); };
+const childhoodStatusPresentation = (status) => ({
+  used: status === 'used',
+  label: ({ available: '可使用', held: '可使用', used: '已使用' }[status] || status || ''),
+});
+const openChildhood = () => { element('#childhood-modal-note').textContent = displayedChildhood.length ? '本局 Draft 获得的童年牌；使用后仍保留在回忆中。' : '童年 Draft 尚未完成。'; element('#childhood-modal-cards').innerHTML = displayedChildhood.length ? displayedChildhood.map((item) => { const presentation = getChildhoodPresentation({ ...item, type: 'C', color: 'childhood' }); const status = childhoodStatusPresentation(item.status); return `<li class="${status.used ? 'childhood-used' : ''}"><div class="childhood-status">${escapeHtml(status.label)}</div>${renderCard(presentation.card, { resume: true, fullEffect: true, showCost: false, flavor: presentation.flavor })}</li>`; }).join('') : '<li class="modal-empty">暂无童年牌记录</li>'; childhoodModal.showModal(); };
 element('#childhood-memory').addEventListener('click', openChildhood);
 element('.childhood-modal-close').addEventListener('click', () => childhoodModal.close()); childhoodModal.addEventListener('click', (event) => { if (event.target === childhoodModal) childhoodModal.close(); });
 
@@ -316,7 +321,7 @@ const renderCardCatalog = () => {
     ['all', '全部'],
     ...CATALOG_TYPES.map((type) => [type, TYPE_META[type].zh]),
   ].map(([type, label]) => `<button class="catalog-filter${catalogFilter === type ? ' is-active' : ''}" type="button" data-type="${type}" aria-pressed="${catalogFilter === type}">${label}</button>`).join('');
-  element('#card-catalog-cards').innerHTML = filtered.map((card) => renderCard(card, { typeLabel: cardMeta(card.type).zh })).join('');
+  element('#card-catalog-cards').innerHTML = filtered.map((card) => { const presentation = getChildhoodPresentation(card); return renderCard(presentation.card, { typeLabel: cardMeta(presentation.card.type).zh }); }).join('');
 };
 const openCardCatalog = async () => {
   element('#card-catalog-status').textContent = cardCatalogById ? '' : '正在读取正式卡牌…';

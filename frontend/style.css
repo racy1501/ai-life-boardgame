@@ -115,6 +115,8 @@
 .childhood-memory:active { box-shadow:inset 0 2px 4px rgba(100,119,85,.12); transform:translateY(0); }
 .childhood-memory:focus-visible { outline:2px solid rgba(117,145,105,.55); outline-offset:2px; }
 .childhood-status { position:static; display:table; margin:0 0 7px; padding:3px 8px; border:1px solid rgba(117,135,111,.25); border-radius:999px; background:rgba(239,244,231,.92); color:#71806e; font-size:clamp(11px,1.25cqw,13px); line-height:1.25; }
+.childhood-modal li.childhood-used .game-card { filter:saturate(.58) brightness(.97); }
+.childhood-modal li.childhood-used .childhood-status { border-color:rgba(129,132,116,.34); background:rgba(226,228,216,.96); color:#697166; font-weight:600; }
 .childhood-modal { --board-scale:1.35; height:fit-content; min-height:0; }
 .childhood-modal ul { flex:none; align-self:stretch; }
 .game-card.full-effect-card { height:calc(213px * var(--board-scale,1)); min-height:0; padding:16px; overflow:visible; }
