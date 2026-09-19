@@ -17,7 +17,7 @@
 - 人类不是与 AI 轮流操作的第二名玩家，人类前端主要用于围观。
 - 随机数、合法性、结算与计分永远以后台代码为准，AI 的自然语言推理不能覆盖后台结果。
 
-当前名称仍为暂定名，正式游戏名待后续确定。
+当前名称仍为暂定名。
 
 ## 核心玩法
 
@@ -35,7 +35,7 @@
 
 完整规则不放在这里，以根目录基础策划文档为准。
 
-## AI / MCP 如何游玩
+## Runtime / MCP
 
 AI 通过 MCP 工具游玩，基本循环是：
 
@@ -48,7 +48,7 @@ start_game
 → …… 直到 game_over
 ```
 
-当前本地测试 MCP 只提供三个正式工具：
+MCP 提供三个正式工具：
 
 | 工具 | 作用 |
 | --- | --- |
@@ -61,12 +61,9 @@ start_game
 - Runtime 每次只给 AI 当前决策所需的最小充分信息：当前阶段、骰面与剩余重掷、稳定资源、当前机会牌、相关 active 能力、当前窗口可用的 Event、两张 Life Goal、当前合法行动或合法购买方案，以及本轮必须做出的决策。
 - 合法购买、支付来源、市场流动、Fate、Debuff、维护成本与终局计分都由后台计算并校验；AI 不需要读取完整牌库，也不负责自己验证支付合法性。
 - 规则信息按需出现：牌走到哪里，解释走到哪里；本局没有抽到、没有遇到的牌与机制，不提前占用上下文。
-- MCP 层保持薄：不复制规则、不自行计算合法动作与支付方案，只做事状态的透传与进程内 session 管理。
-- 本仓库包含 Production Runtime 与本地测试 MCP。最终游戏站的 MCP 封装与 VPS 部署不在本仓库当前开发阶段内，由后续接入方完成。
+- Runtime、MCP 与 spectator 共用同一套正式游戏状态；MCP 不复制规则、不自行计算合法动作与支付方案，只负责调用 Runtime 并管理进程内 session。
 
 ## 人类围观前端
-
-当前状态：**spectator 网页前端已随仓库提供。**
 
 前端定位：
 
@@ -83,20 +80,6 @@ frontend/index.html?session_id=<session_id>
 
 前端只读取 spectator snapshot 展示游戏世界、卡牌、骰子、人生阶段、履历与结算过程；正式游戏状态始终由 Runtime / Engine 决定。
 
-## 当前状态
-
-- ✅ Simulation / 数值基线完成
-- ✅ Production Runtime 主链完成
-- ✅ 本地测试 MCP 完成
-- ✅ 特殊能力、JIT 信息层、终局计分完成
-- ✅ 多轮真实模型完整黑盒可自然运行到 `game_over`
-- ✅ Runtime Payload Slim v1 已完成
-- ✅ spectator 前端与 Runtime bridge 已完成
-- 🔄 当前阶段：Release Candidate 交付收尾
-- ⏳ 最后交由外部接入方进行正式 MCP 封装、VPS 部署与游戏站接入
-
-数值结构与大规模平衡调整当前处于冻结状态。已有的单局试玩分数与路线只用于 Runtime 信息、接口与可理解性验收，不作为平衡结论。
-
 ## 项目结构
 
 ```text
@@ -111,25 +94,25 @@ AI人生桌游/
 │   └── style.css
 └── simulation/
     ├── ailife/            # 规则与运行时核心：cards / engine / runtime / scoring / stats / strategies
-    ├── runtime_mcp.py     # 本地测试 MCP，只提供三个正式工具
+    ├── runtime_mcp.py     # Runtime 的 MCP 入口
     ├── run_runtime.py     # 极薄本地 CLI
     ├── run_simulation.py  # 数值模拟批量入口
     └── tests/             # Engine / Runtime / CLI / MCP 测试
 ```
 
-## 本地测试 MCP
+## 启动 Runtime / MCP
 
 ```bash
 cd simulation
 uv run --no-project --with mcp python runtime_mcp.py
 ```
 
-- 本地测试 MCP 使用官方 Python MCP SDK，通过 stdio 提供 `start_game` / `current_decision` / `submit_action` 三个工具。
-- 上一条命令在临时环境里获取 SDK，不需要改动项目依赖。当前环境已安装官方 mcp SDK 时，也可以直接运行 `python runtime_mcp.py`。
+- MCP 使用官方 Python MCP SDK，通过 stdio 提供 `start_game` / `current_decision` / `submit_action` 三个工具。
+- 上一条命令使用临时环境获取 SDK，不需要改动项目依赖；已安装官方 mcp SDK 时，也可以直接运行 `python runtime_mcp.py`。
 - session 只存在于进程内，使用不可预测 ID 生成：不落库、不存档、不做序列化。server 重启后旧 `session_id` 失效，需要重新 `start_game`。
 - 传入不存在的 `session_id` 会返回 `unknown_session_id`；提交过期或非法的 action 由 Runtime 判定并返回当前正式 decision。
 
-## 本地运行
+## 命令行运行
 
 极薄本地 CLI：
 
@@ -149,18 +132,18 @@ python run_simulation.py --config V06 --games 1000 --seed 1
 
 模拟结果输出到 `results/<config>/`，属于本地运行产物，不进入版本库。
 
-Runtime、CLI 与模拟入口只依赖 Python 标准库；测试使用 pytest；本地测试 MCP 需要官方 mcp SDK。当前开发与验证环境为 Python 3.13，本地测试 MCP 亦在 Python 3.14 下运行通过。
+Runtime、CLI 与模拟入口只依赖 Python 标准库；MCP 需要官方 mcp SDK；开发验证命令使用 pytest。
 
-## 测试
+## 开发验证
 
-从 `simulation` 目录执行当前的全量测试：
+从 `simulation` 目录执行验证：
 
 ```bash
 cd simulation
 python -m pytest tests -q
 ```
 
-覆盖 Engine、Runtime、CLI 与 MCP。其中与 MCP server 注册相关的用例需要官方 mcp SDK，未安装时会自动跳过；需要完整运行时改用：
+覆盖 Engine、Runtime、CLI 与 MCP；需要 MCP SDK 时使用：
 
 ```bash
 cd simulation
@@ -169,10 +152,10 @@ uv run --no-project --with mcp --with pytest python -m pytest tests -q
 
 ## 文档
 
-- [基础策划文档](AI人生桌游-基础策划文档-v0.7.md)：规则、Runtime 设计、系统架构与当前开发基线。
+- [基础策划文档](AI人生桌游-基础策划文档-v0.7.md)：规则、Runtime 设计与系统架构。
 - [完整卡牌表](AI人生桌游-完整卡牌表-v0.7.md)：当前正式牌池、能力与 Life Goal 计分公式。
 
-基础策划文档是当前规则与开发基线的正式来源；卡牌数值与能力以完整卡牌表为准。
+基础策划文档是正式规则与架构原则的来源；卡牌数值与能力以完整卡牌表为准。
 
 ## 使用许可
 
