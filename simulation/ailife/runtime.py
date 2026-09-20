@@ -933,6 +933,118 @@ class GameSession:
             'card': self._presented_card(self.game.current_debuff),
         }
 
+    def _final_summary_ready(self):
+        """终局事实已完整固化时才允许对 spectator 下发。
+
+        Game 会在最终 flex 指定前先进入 game_over；该窗口的 oracle 分数还
+        不是 Production Runtime 已确认的最终指定结果，不能作为终局事实发布。
+        """
+        return (self.game.game_over
+                and (self._final_flex_designation is not None
+                     or not flex_actives(self.game.cv)))
+
+    def _final_summary(self, score=None):
+        """从现有正式状态只读派生终局人生履历事实。
+
+        不写入 Game，不补造逐回合历史；score 始终复用 full_score 的正式口径。
+        调用方只应在 _final_summary_ready() 为真时公开此投影。
+        """
+        game = self.game
+        if score is None:
+            score = full_score(
+                game.cv, game.goals, **game.scoring_counts(),
+                flex_designation=self._final_flex_designation)
+
+        held_ids = {cid for cls in 'HKRWP' for cid in game.cv[cls]}
+        held = {
+            cls: [self._spectator_card_summary(cid) for cid in game.cv[cls]]
+            for cls in 'HKRWP'
+        }
+        active = {
+            cls: (self._spectator_card_summary(game.active(cls))
+                  if game.active(cls) else None)
+            for cls in 'HKRWP'
+        }
+        lost_ids = sorted(
+            (cid for cid in game.acquired
+             if CARDS[cid]['type'] in 'HKRWP' and cid not in held_ids),
+            key=lambda cid: (game.acquired[cid], cid))
+
+        event_ids = {
+            cid for cid in game.acquired if CARDS[cid]['type'] == 'E'
+        }
+        event_ids.update(
+            cid for cid, count in game.stats.game['event_buys'].items()
+            if count > 0)
+        event_ids = sorted(event_ids,
+                           key=lambda cid: (game.acquired.get(cid, -1), cid))
+        used_event_ids = [
+            cid for cid in event_ids if game.stats.game['event_uses'].get(cid, 0)
+        ]
+        remaining_event_ids = [
+            cid for cid in game.hand if CARDS[cid]['type'] == 'E'
+        ]
+
+        completed_debuffs = []
+        for index, cid in enumerate(game.debuff_history):
+            item = {'card': self._spectator_card_summary(cid)}
+            if index < len(game.debuff_durations):
+                item['active_turns'] = game.debuff_durations[index]
+            completed_debuffs.append(item)
+        current_debuff = None
+        if game.current_debuff:
+            current_debuff = {
+                **self._spectator_card_summary(game.current_debuff),
+                'active_from_turn': game.debuff_active_from_turn,
+                'turns_remaining': game.debuff_turns_remaining,
+                'active_turns': game.debuff_active_turns,
+            }
+
+        life_goals = self._life_goals_summary(with_text=True)
+        for goal, goal_score in zip(life_goals, score['lg_scores']):
+            goal['score'] = goal_score
+
+        completed_turn = (self._previous_turn_result or {}).get(
+            'completed_turn', game.turn)
+        return {
+            'completed_turn': completed_turn,
+            # full_score 的 provides 含 tuple；转换只保证 spectator 协议严格 JSON-ready，
+            # 不改变任何计分结果。
+            'score': _json_ready(copy.deepcopy(score)),
+            'life_goals': life_goals,
+            'initial_life_goals': [
+                {'id': gid, 'name': LG_NAMES[gid]} for gid in game.initial_goals
+            ],
+            'childhood': self._childhood_history_summary(),
+            'cv': {
+                'held': held,
+                'active': active,
+                'lost': [self._spectator_card_summary(cid) for cid in lost_ids],
+            },
+            'events': {
+                'acquired': [self._spectator_card_summary(cid)
+                             for cid in event_ids],
+                'used': [self._spectator_card_summary(cid)
+                         for cid in used_event_ids],
+                'remaining': [self._spectator_card_summary(cid)
+                              for cid in remaining_event_ids],
+            },
+            'fates': {
+                'acquired': [self._spectator_card_summary(cid)
+                             for cid in game.fate_stack],
+                'active': (self._spectator_card_summary(game.active_fate_card()['id'])
+                           if game.active_fate_card() else None),
+            },
+            'debuffs': {
+                'completed': completed_debuffs,
+                'current': current_debuff,
+                'trigger_count': game.stats.game['debuff_triggers'],
+                'cancelled_count': game.stats.game['debuff_cancelled'],
+            },
+            'final_flex_designation': copy.deepcopy(
+                self._final_flex_designation or {}),
+        }
+
     def spectator_snapshot(self):
         """返回当前正式局面的纯读取围观投影。
 
@@ -979,7 +1091,7 @@ class GameSession:
                 'scoring_text': goal['scoring_text'],
             })
 
-        return {
+        snapshot = {
             'status': 'game_over' if game.game_over else 'in_progress',
             'game_over': game.game_over,
             'stage': game.stage,
@@ -1008,6 +1120,9 @@ class GameSession:
             'cv': cv,
             'recent_events': copy.deepcopy(self._recent_events),
         }
+        if self._final_summary_ready():
+            snapshot['final_summary'] = self._final_summary()
+        return snapshot
 
     def _gl_bl_visible(self, kind):
         """GL/BL 是否已成为当前决策中真实可见、可用于策略判断的信息。
@@ -1462,13 +1577,15 @@ class GameSession:
                 'legal_actions': [],
             }
         if kind == 'game_over':
+            score = full_score(self.game.cv, self.game.goals,
+                               **self.game.scoring_counts(),
+                               flex_designation=self._final_flex_designation)
             return {
                 'decision_id': self._decision_id(),
                 'kind': kind,
                 'scoring_ready': True,
-                'score': full_score(self.game.cv, self.game.goals,
-                                    **self.game.scoring_counts(),
-                                    flex_designation=self._final_flex_designation),
+                'score': score,
+                'final_summary': self._final_summary(score),
                 'completed_turn': self._previous_turn_result['completed_turn'],
                 'previous_turn_result': self._previous_turn_result_view(),
                 'candidates': [],

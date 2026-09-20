@@ -2705,6 +2705,74 @@ class TestRuntimeGameOverScore(unittest.TestCase):
                     'lg_ids', 'lg_scores', 'counts'):
             self.assertEqual(decision['score'][key], row_score[key], key)
 
+    def test_final_summary_is_shared_json_ready_and_read_only(self):
+        session, decision = self.game_over_session()
+        game = session.game
+        game.acquired.update({
+            'YH-01': 2, 'YH-02': 4, 'YK-01': 3, 'MK-04': 12,
+            'YW-01': 5, 'YP-01': 6, 'YP-02': 8,
+            # 已取得但终局不在任何 CV stack 中；只验证身份，不伪造丢失详情。
+            'YR-01': 7,
+            'YE-01': 9, 'YE-03': 11,
+        })
+        game.hand = ['YE-03']
+        game.stats.game['event_buys'] = Counter({'YE-01': 1, 'YE-03': 1})
+        game.stats.game['event_uses'] = Counter({'YE-01': 1})
+        game.stats.game['debuff_triggers'] = 2
+        game.stats.game['debuff_cancelled'] = 1
+        game.debuff_durations = [3]
+
+        before = copy.deepcopy((
+            game.cv, game.hand, game.acquired, game.fate_stack,
+            game.active_fate, game.debuff_history, game.debuff_durations,
+            game.current_debuff, game.stats.game, game.rng.getstate(),
+            session._final_flex_designation, session._previous_turn_result,
+        ))
+        decision = session.current_decision()
+        snapshot = session.spectator_snapshot()
+        self.assertEqual(copy.deepcopy((
+            game.cv, game.hand, game.acquired, game.fate_stack,
+            game.active_fate, game.debuff_history, game.debuff_durations,
+            game.current_debuff, game.stats.game, game.rng.getstate(),
+            session._final_flex_designation, session._previous_turn_result,
+        )), before)
+
+        self.assertIn('final_summary', decision)
+        self.assertIn('final_summary', snapshot)
+        summary = decision['final_summary']
+        self.assertEqual(snapshot['final_summary'], summary)
+        self.assertEqual(summary['score'], json.loads(json.dumps(full_score(
+            game.cv, game.goals, **game.scoring_counts(),
+            flex_designation=session._final_flex_designation))))
+        self.assertEqual(summary['completed_turn'], 20)
+        self.assertEqual([goal['score'] for goal in summary['life_goals']],
+                         decision['score']['lg_scores'])
+        self.assertEqual([card['card_id'] for card in summary['cv']['lost']],
+                         ['YR-01'])
+        held_ids = {card['card_id'] for cards in summary['cv']['held'].values()
+                    for card in cards}
+        self.assertNotIn('YR-01', held_ids)
+        self.assertEqual([card['card_id'] for card in summary['events']['acquired']],
+                         ['YE-01', 'YE-03'])
+        self.assertEqual([card['card_id'] for card in summary['events']['used']],
+                         ['YE-01'])
+        self.assertEqual([card['card_id'] for card in summary['events']['remaining']],
+                         ['YE-03'])
+        self.assertEqual(summary['debuffs']['trigger_count'], 2)
+        self.assertEqual(summary['debuffs']['cancelled_count'], 1)
+        self.assertEqual(summary['final_flex_designation'],
+                         session._final_flex_designation)
+        # 未保存的逐次时间线不应被 summary 凭空补出。
+        self.assertNotIn('lost_turn', summary['cv']['lost'][0])
+        self.assertNotIn('use_turn', summary['events']['used'][0])
+        self.assertNotIn('active_history', summary['fates'])
+        self.assertNotIn('cancelled_history', summary['debuffs'])
+        self.assertEqual(json.loads(json.dumps(snapshot)), snapshot)
+
+    def test_non_game_over_snapshot_has_no_final_summary(self):
+        session = GameSession(seed=1, shuffle=False, forced_goals=[1, 2])
+        self.assertNotIn('final_summary', session.spectator_snapshot())
+
 
 class TestYK05RuntimeConversion(unittest.TestCase):
     """YK-05 每回合一次 R→K 转换接入 Runtime 的定向回归。"""
