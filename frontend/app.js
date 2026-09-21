@@ -122,6 +122,7 @@ let displayedChildhood = [];
 const renderGoalList = (goals) => { displayedGoals = goals; element('#goals-list').innerHTML = goals.map((goal, index) => `<li class="goal-item"><b>${escapeHtml(goal[0])}</b><button class="more-button goal-more" data-index="${index}" type="button">详情 <span>→</span></button></li>`).join('') || '<li class="goal-item"><b>暂无</b></li>'; };
 const renderEventList = (events) => { displayedEvents = events; element('#events-list').innerHTML = events.length ? events.map((card, index) => `<li class="event-item"><b>${escapeHtml(card.name)}</b><button class="more-button event-more" data-index="${index}" type="button">详情 <span>→</span></button></li>`).join('') : '<li class="event-item"><b>暂无</b></li>'; };
 const renderDesk = (game, { renderDicePool = true } = {}) => {
+  setFinalPage(false);
   element('#round-status').textContent = `${game.phase} · 第 ${game.round} / 23 回合`;
   setConnectionLabel(game.connection);
   element('.opportunity-market .section-title span').textContent = `当前 ${game.opportunity.length} 张`;
@@ -152,6 +153,59 @@ const snapshotToDesk = (snapshot) => {
     return { ...top, type: label, color: cardMeta(label).color, held: orderedHeld };
   });
   return { phase: stage, round: snapshot.game_over ? snapshot.completed_turn : snapshot.current_turn, connection: snapshot.game_over || snapshot.status === 'game_over' ? '已结束' : '已连接', playerIdentity: snapshot.player_identity || DEFAULT_PLAYER_IDENTITY, opportunity: snapshot.opportunity_market || [], fate: snapshot.fate_market?.cards || [], goals: (snapshot.life_goals || []).map((goal) => [goal.name, goal.scoring_text]), events: snapshot.event_hand || [], childhood: snapshot.childhood_cards || [], debuff: snapshot.current_debuff ? { name: snapshot.current_debuff.name, turns: `剩余 ${snapshot.current_debuff.turns_remaining} 回合`, effect: snapshot.current_debuff.effect_summary } : null, logs: (snapshot.recent_events || []).slice(-LOG_DISPLAY_LIMIT).reverse().map((event) => event.text), dice: (snapshot.dice?.values || []).map((value, index) => ({ value, frozen: frozen.has(index) })), maxDiceCount: snapshot.dice?.max_dice_count || DICE_SLOT_COUNT, rollRevision: snapshot.dice?.roll_revision, resume };
+};
+
+const finalCards = (cards) => (cards || []).filter(Boolean);
+const setFinalPage = (active) => {
+  element('.page-shell').classList.toggle('is-final', active);
+  element('#final-summary-page').hidden = !active;
+  element('#page-title').textContent = active ? '一局已经写完的人生' : '一局正在发生的人生';
+};
+const finalUniqueCards = (cards) => {
+  const seen = new Set();
+  return finalCards(cards).filter((card) => {
+    const key = card.card_id || card.name;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+const finalCardStackMarkup = (cards, emptyText) => {
+  const items = finalCards(cards);
+  if (!items.length) return `<p class="final-empty">${escapeHtml(emptyText)}</p>`;
+  return items.map((card, index) => {
+    // childhood 的终局历史投影只保存 card_id/name/status；用正式 card_id 首字母
+    // 补足展示类型，令终局卡与同一张 Card Detail 使用相同类别配色。
+    const meta = cardMeta(card.type || String(card.card_id || '').charAt(0));
+    return `<article class="game-card market-card final-catalog-card ${escapeHtml(meta.color)}" data-card-id="${escapeHtml(card.card_id || '')}" style="--stack-index:${index}"><p class="card-type">${escapeHtml(meta.zh)}</p><h3>${escapeHtml(card.name || '暂无')}</h3></article>`;
+  }).join('');
+};
+const renderFinalSummary = (summary, identity) => {
+  setFinalPage(true);
+  const safeSummary = summary || {};
+  const score = safeSummary.score || {};
+  const goals = safeSummary.life_goals || [];
+  const completedDebuffs = finalCards(safeSummary.debuffs?.completed);
+  const debuffHistory = [
+    ...completedDebuffs,
+    ...(safeSummary.debuffs?.current ? [{ card: safeSummary.debuffs.current, current: true }] : []),
+  ];
+  const player = { ...DEFAULT_PLAYER_IDENTITY, ...(identity || {}) };
+  element('#final-player').textContent = `${player.emoji || DEFAULT_PLAYER_IDENTITY.emoji} ${player.name || DEFAULT_PLAYER_IDENTITY.name}`;
+  element('#final-score-total').textContent = score.total ?? '—';
+  element('#final-completed-turn').textContent = Number.isInteger(safeSummary.completed_turn) ? `完成第 ${safeSummary.completed_turn} 回合` : '本局结束';
+  element('#final-goals').innerHTML = goals.length ? goals.map((goal) => `<div class="final-goal"><span>${escapeHtml(goal.name || '暂无')}</span><b>${escapeHtml(goal.score ?? '—')} 分</b></div>`).join('') : '<p class="final-goal-empty">暂无人生目标结算</p>';
+  element('#final-childhood-cards').innerHTML = finalCardStackMarkup(safeSummary.childhood, '暂无童年记录');
+  for (const [type] of CV_TYPES) {
+    const allCv = finalUniqueCards([
+      ...finalCards(safeSummary.cv?.held?.[type]),
+      ...finalCards(safeSummary.cv?.lost).filter((card) => card.type === type),
+    ]);
+    element(`#final-cv-${type.toLowerCase()}`).innerHTML = finalCardStackMarkup(allCv, '暂无');
+  }
+  element('#final-events').innerHTML = finalCardStackMarkup(safeSummary.events?.acquired, '暂无 Event');
+  element('#final-fates').innerHTML = finalCardStackMarkup(safeSummary.fates?.acquired, '暂无 Fate');
+  element('#final-debuffs').innerHTML = finalCardStackMarkup(finalUniqueCards(debuffHistory.map((item) => item.card)), '暂无 Debuff');
 };
 
 const modal = element('#resume-modal');
@@ -306,8 +360,8 @@ const openCardDetailWhenReady = async (cardId) => {
   if (!cardCatalogById?.[cardId] && !(await loadCardCatalog())) return;
   openCardDetail(cardId);
 };
-const bindCardDetail = (selector) => element(selector).addEventListener('click', (event) => { if (event.target.closest('.more-button')) return; const cardEl = event.target.closest('.game-card[data-card-id]'); if (cardEl) void openCardDetailWhenReady(cardEl.dataset.cardId); });
-bindCardDetail('#opportunity-cards'); bindCardDetail('#fate-cards'); bindCardDetail('#resume-cards'); bindCardDetail('#modal-cards');
+const bindCardDetail = (selector) => element(selector).addEventListener('click', (event) => { if (event.target.closest('.more-button')) return; const cardEl = event.target.closest('.game-card[data-card-id]'); if (cardEl?.dataset.cardId) void openCardDetailWhenReady(cardEl.dataset.cardId); });
+bindCardDetail('#opportunity-cards'); bindCardDetail('#fate-cards'); bindCardDetail('#resume-cards'); bindCardDetail('#modal-cards'); bindCardDetail('#final-summary-page');
 element('#events-list').addEventListener('click', (event) => { const button = event.target.closest('.event-more'); const card = button && displayedEvents[button.dataset.index]; if (card?.card_id) void openCardDetailWhenReady(card.card_id); });
 
 const cardCatalogModal = element('#card-catalog-modal');
@@ -395,7 +449,14 @@ const pollSnapshot = async () => {
       setConnectionLabel(response.status === 404 ? 'session 不存在' : 'bridge 不可达');
       return;
     }
-    const desk = snapshotToDesk(await response.json());
+    const snapshot = await response.json();
+    if (snapshot.game_over === true && snapshot.final_summary) {
+      cancelDiceAnimation();
+      renderFinalSummary(snapshot.final_summary, snapshot.player_identity);
+      hasSnapshot = true;
+      return;
+    }
+    const desk = snapshotToDesk(snapshot);
     const revision = Number.isInteger(desk.rollRevision) ? desk.rollRevision : null;
     const establishBaseline = !hasDiceBaseline || rebaselineDiceAfterFailure;
     let shouldAnimate = false;

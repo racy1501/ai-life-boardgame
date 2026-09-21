@@ -10,7 +10,7 @@
     <div class="board-space">
       <main class="page-shell" aria-label="AI 人生桌游静态视觉原型">
       <header class="page-header">
-        <div class="title-block"><p>AI 人生桌游</p><div class="title-actions"><h1>一局正在发生的人生</h1><div class="title-tag-group"><button id="open-card-catalog" class="catalog-button" type="button">全部卡牌 <span>→</span></button><button id="open-rules" class="catalog-button rules-button" type="button">基础规则 <span>→</span></button></div></div></div>
+        <div class="title-block"><p>AI 人生桌游</p><div class="title-actions"><h1 id="page-title">一局正在发生的人生</h1><div class="title-tag-group"><button id="open-card-catalog" class="catalog-button" type="button">全部卡牌 <span>→</span></button><button id="open-rules" class="catalog-button rules-button" type="button">基础规则 <span>→</span></button></div></div></div>
       </header>
       <section class="markets" aria-label="市场">
         <div class="market-block opportunity-market"><div class="section-title inline-title"><h2>机会市场</h2><span>当前 5 张</span></div><p class="market-hint">每回合共离开 3 张牌（含本轮购买），随后补入新机会。</p><div id="opportunity-cards" class="card-row five-cards"></div></div>
@@ -41,6 +41,14 @@
         </section>
         <section class="game-log text-section" aria-label="游戏日志"><h2>游戏日志</h2><p class="log-sync-hint">提示：观战画面同步的是实时游戏进度，显示可能会比对话框里的文字快一步。</p><ul id="log-list"></ul></section>
         <section class="resume-section" aria-label="当前履历"><div class="section-title"><h2>当前履历</h2></div><div id="resume-cards" class="card-row five-cards resume-cards"></div></section>
+      </section>
+      <section id="final-summary-page" class="final-summary-page" aria-label="终局人生履历" hidden>
+        <header class="final-hero">
+          <div class="final-hero-player"><p class="final-kicker">人生履历 · 本局结束</p><h2>这一生，写到了这里</h2><p id="final-player" class="final-player"></p></div>
+          <section class="final-hero-goals" aria-label="本局人生目标得分"><p>本局人生目标得分</p><div id="final-goals" class="final-goals"></div></section>
+          <div class="final-score-block"><span>最终总分</span><strong id="final-score-total">—</strong><small id="final-completed-turn">—</small></div>
+        </header>
+        <section class="final-cv-section" aria-labelledby="final-cv-title"><div class="final-section-heading"><p>正式牌史</p><h3 id="final-cv-title">人生履历</h3></div><div class="final-history-columns"><div class="final-history-main"><section><h4>童年</h4><div id="final-childhood-cards" class="final-card-stack"></div></section><section><h4>健康</h4><div id="final-cv-h" class="final-card-stack"></div></section><section><h4>知识</h4><div id="final-cv-k" class="final-card-stack"></div></section><section><h4>关系</h4><div id="final-cv-r" class="final-card-stack"></div></section><section><h4>工作</h4><div id="final-cv-w" class="final-card-stack"></div></section><section><h4>财产</h4><div id="final-cv-p" class="final-card-stack"></div></section></div><div class="final-history-divider" aria-hidden="true"></div><aside class="final-history-side"><section><h4>事件 Event</h4><div id="final-events" class="final-card-stack"></div></section><section><h4>命运 Fate</h4><div id="final-fates" class="final-card-stack"></div></section><section><h4>逆境 Debuff</h4><div id="final-debuffs" class="final-card-stack"></div></section></aside></div></section>
       </section>
       </main>
     </div>
