@@ -1648,9 +1648,15 @@ class TestRuntimePurchaseExecution(unittest.TestCase):
     def test_purchase_two_stage_instructions_keep_latest_decision_and_plan_scope_clear(self):
         session, ready = self.ready_session(
             ['M', 'M', 'M', 'BL'], ['YP-01'], extra_hand=['C03'])
-        self.assertIn('第一阶段只提交 ordinary_card_ids 和 fate_card_id',
-                      ready['action_instruction'])
-        self.assertIn('payment_options 仅是支付摘要', ready['action_instruction'])
+        instruction = ready['action_instruction']
+        for text in (
+                'session_id 和 decision_id',
+                'action 只复制某个 purchase_targets 条目',
+                'ordinary_card_ids 必须是字符串数组，可为 []',
+                'fate_card_id 必须存在，未购买 Fate 时填 null',
+                '两张普通牌必须保持该目标中的原始顺序',
+                '不得提交 payment_option_count 等展示字段'):
+            self.assertIn(text, instruction)
         target = {'ordinary_card_ids': ['YP-01'], 'fate_card_id': None}
         selected = session.submit_action(ready['decision_id'], target)
         self.assertTrue(selected['ok'])

@@ -1298,8 +1298,11 @@ class GameSession:
                 purchase_view = {
                     'purchase_targets': self._purchase_targets_view(),
                     'action_instruction':
-                        '第一阶段只提交 ordinary_card_ids 和 fate_card_id 选择购买目标；'
-                        'payment_options 仅是支付摘要，不能当作 plan_id 提交。',
+                        '调用 submit_action 时使用本次返回的 session_id 和 decision_id；'
+                        'action 只复制某个 purchase_targets 条目的 ordinary_card_ids '
+                        '和 fate_card_id。ordinary_card_ids 必须是字符串数组，可为 []；'
+                        'fate_card_id 必须存在，未购买 Fate 时填 null。两张普通牌必须保持该目标'
+                        '中的原始顺序；不得提交 payment_option_count 等展示字段。',
                 }
             else:
                 groups = self._purchase_target_groups()

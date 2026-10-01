@@ -454,6 +454,32 @@ class TestSpectatorHttpBridge(RuntimeMcpTestCase):
 @unittest.skipIf(runtime_mcp.server is None,
                  '未安装官方 mcp SDK：请用 uv run --no-project --with mcp 运行')
 class TestServerWiring(RuntimeMcpTestCase):
+    def first_turn_purchase_ready(self):
+        started = runtime_mcp.start_game(seed=0, forced_goals=[1, 2])
+        session_id = started['session_id']
+        decision = started['decision']
+        while decision['kind'].startswith('childhood_pick'):
+            decision = runtime_mcp.submit_action(
+                session_id, decision['decision_id'],
+                decision['legal_actions'][0])['decision']
+        decision = runtime_mcp.submit_action(
+            session_id, decision['decision_id'], {})['decision']
+        decision = runtime_mcp.submit_action(
+            session_id, decision['decision_id'],
+            {'choice': 'proceed_to_purchase'})['decision']
+        self.assertEqual(decision['kind'], 'purchase_ready')
+        return session_id, decision
+
+    def call_submit(self, session_id, decision, action):
+        result = asyncio.run(runtime_mcp.server.call_tool(
+            'submit_action', {
+                'session_id': session_id,
+                'decision_id': decision['decision_id'],
+                'action': action,
+            }))
+        self.assertFalse(result_is_error(result))
+        return json.loads(result_text(result))
+
     def test_exposes_only_the_three_tools(self):
         tools = asyncio.run(runtime_mcp.server.list_tools())
         self.assertEqual(sorted(tool.name for tool in tools),
@@ -471,6 +497,49 @@ class TestServerWiring(RuntimeMcpTestCase):
                          ['action', 'decision_id', 'session_id'])
         self.assertEqual(sorted(tools['submit_action']['required']),
                          ['action', 'decision_id', 'session_id'])
+
+    def test_submit_action_description_explains_nested_purchase_payload(self):
+        tool = next(tool for tool in asyncio.run(runtime_mcp.server.list_tools())
+                    if tool.name == 'submit_action')
+        description = tool.description
+        self.assertIn('``action``', description)
+        self.assertIn('ordinary_card_ids', description)
+        self.assertIn('fate_card_id', description)
+        self.assertIn('"action":{"ordinary_card_ids":[],"fate_card_id":null}',
+                      description)
+        schema = input_schema(tool)
+        self.assertEqual(schema['properties']['action']['type'], 'object')
+        self.assertTrue(schema['properties']['action']['additionalProperties'])
+
+    def test_purchase_ready_l1_mcp_payload_accepts_targets_and_rejects_bad_shapes(self):
+        session_id, ready = self.first_turn_purchase_ready()
+        empty = next(target for target in ready['purchase_targets']
+                     if target['ordinary_card_ids'] == [])
+        empty_action = {key: empty[key]
+                        for key in ('ordinary_card_ids', 'fate_card_id')}
+        accepted_empty = self.call_submit(session_id, ready, empty_action)
+        self.assertTrue(accepted_empty['ok'])
+        self.assertEqual(accepted_empty['accepted_action'], empty_action)
+
+        session_id, ready = self.first_turn_purchase_ready()
+        single = next(target for target in ready['purchase_targets']
+                      if len(target['ordinary_card_ids']) == 1)
+        single_action = {key: single[key]
+                         for key in ('ordinary_card_ids', 'fate_card_id')}
+        accepted_single = self.call_submit(session_id, ready, single_action)
+        self.assertTrue(accepted_single['ok'])
+        self.assertEqual(accepted_single['accepted_action'], single_action)
+
+        for action in (
+                {'ordinary_card_ids': []},
+                {'ordinary_card_ids': [], 'fate_card_id': None,
+                 'payment_option_count': 1}):
+            with self.subTest(action=action):
+                session_id, ready = self.first_turn_purchase_ready()
+                rejected = self.call_submit(session_id, ready, action)
+                self.assertFalse(rejected['ok'])
+                self.assertEqual(rejected['error'], 'invalid_action')
+                self.assertEqual(runtime_mcp.current_decision(session_id), ready)
 
     def test_unknown_session_reason_survives_the_transport(self):
         result = asyncio.run(runtime_mcp.server.call_tool(

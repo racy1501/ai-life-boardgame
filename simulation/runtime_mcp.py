@@ -238,7 +238,18 @@ def current_decision(session_id: str) -> Dict[str, Any]:
 
 def submit_action(session_id: str, decision_id: str,
                   action: Dict[str, Any]) -> Dict[str, Any]:
-    """把 action 交给 GameSession.submit_action()，返回其结果与下一 decision。"""
+    """提交当前 decision 的 action，返回结果与下一 decision。
+
+    ``action`` 始终是一个嵌套对象，具体字段只以当前 decision 的 Guide /
+    legal_actions 为准。购买第一层选择目标时，必须把 purchase_targets 条目
+    中的两个动作字段放在 ``action`` 内；例如不购买任何牌：
+
+    {"session_id":"<当前 session_id>","decision_id":"<当前 decision_id>",
+     "action":{"ordinary_card_ids":[],"fate_card_id":null}}
+
+    ``fate_card_id`` 未购买时仍须传 ``null``，不能省略。其他阶段继续使用
+    各自当前 decision 规定的 action 结构。
+    """
     result, error = _with_session_lock(
         session_id, lambda session: session.submit_action(decision_id, action))
     if error is not None:
